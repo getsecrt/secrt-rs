@@ -277,6 +277,15 @@ mod tests {
         assert!(err.unwrap_err().contains("must not be empty"));
     }
 
+    #[test]
+    fn passphrase_default_fallback() {
+        let mut deps = default_deps();
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_default = "from-config".into();
+        let result = resolve_passphrase(&pa, &mut deps).unwrap();
+        assert_eq!(result, "from-config");
+    }
+
     // --- resolve_passphrase_for_create tests ---
 
     #[test]

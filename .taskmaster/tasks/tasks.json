@@ -42,6 +42,175 @@
           { "id": 3, "title": "Measure size after keychain support", "description": "1,452,208 bytes (+1,232 / +0.08% over config-only)", "status": "done" },
           { "id": 4, "title": "Report size comparison", "status": "done" }
         ]
+      },
+      {
+        "id": 4,
+        "title": "macOS code signing and notarization",
+        "description": "Sign and notarize the macOS binary using an Apple Developer ID so users don't get Gatekeeper warnings. JD has an existing Apple Developer account.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Build macOS binaries (universal + arch-specific)",
+            "description": "Build aarch64-apple-darwin and x86_64-apple-darwin separately, then combine with `lipo` into a universal binary (~2.8 MB). Add `make universal` target. Publish all three: universal (for Homebrew/default download), plus arch-specific for power users who want the smallest binary (~1.4 MB each).",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Code sign with Developer ID Application certificate",
+            "description": "Sign the binary with `codesign --sign 'Developer ID Application: ...' --options runtime --timestamp`. The `--options runtime` flag enables hardened runtime (required for notarization). Requires the cert in Keychain.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Notarize with Apple via notarytool",
+            "description": "Submit the signed binary to Apple for notarization: `xcrun notarytool submit secrt.zip --apple-id <email> --team-id <team> --password <app-specific-password> --wait`. Requires an app-specific password from appleid.apple.com.",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Staple the notarization ticket",
+            "description": "After notarization succeeds, staple the ticket: `xcrun stapler staple secrt`. This embeds the notarization so it works offline. Note: stapling only works on .app/.pkg/.dmg — for standalone binaries, macOS checks the ticket online. Consider distributing as .pkg or .dmg if offline verification matters.",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Add GitHub Actions CI workflow for macOS signing",
+            "description": "Automate signing + notarization in CI. Store Developer ID cert as base64 in GitHub secrets. Use a keychain in the runner. Steps: import cert -> build universal -> codesign -> zip -> notarytool submit -> upload artifact.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Windows code signing with SSL.com certificate",
+        "description": "Sign the Windows .exe with JD's SSL.com EV or OV code signing certificate. SSL.com uses their eSigner cloud signing service for EV certs (no USB token required in CI).",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Cross-compile Windows binary",
+            "description": "Build for x86_64-pc-windows-msvc (or -gnu). May need a Windows runner in CI or cross-compilation toolchain. Test that the binary works on Windows.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Sign with SSL.com eSigner",
+            "description": "Use SSL.com's eSigner for cloud-based signing. For CI: use the CodeSignTool CLI (`CodeSignTool sign -input_file_path=secrt.exe -username=<user> -password=<pass> -totp_secret=<secret> -credential_id=<id>`). Store credentials in GitHub secrets.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Verify Authenticode signature",
+            "description": "Verify the signed .exe using `signtool verify /pa secrt.exe` or PowerShell `Get-AuthenticodeSignature`. Confirm SmartScreen won't block it.",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Add GitHub Actions CI workflow for Windows signing",
+            "description": "Add a Windows job to the release workflow. Steps: build on windows-latest -> sign with eSigner -> upload artifact. Store SSL.com credentials (username, password, TOTP secret, credential ID) in GitHub secrets.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Linux and cross-platform distribution",
+        "description": "Linux binaries don't need code signing per se, but proper distribution channels need their own packaging and trust mechanisms.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Build static Linux binaries (musl)",
+            "description": "Build with `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` targets for portable static binaries. No glibc dependency = runs on any Linux distro.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Generate SHA-256 checksums and GPG signatures",
+            "description": "For every release artifact, generate SHA-256 checksums file and GPG-sign it. Users verify with `sha256sum -c checksums.txt` and `gpg --verify checksums.txt.asc`. Create or use a GPG key for the project.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Create Homebrew tap",
+            "description": "Create a `homebrew-tap` repo (e.g., getsecrt/homebrew-secrt) with a formula that downloads the macOS universal binary. Users install with `brew install getsecrt/secrt/secrt`. Formula auto-updates via release URLs with SHA-256 verification.",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Publish to crates.io",
+            "description": "Publish to crates.io so Rust users can `cargo install secrt`. Clean up Cargo.toml metadata (description, license, keywords, categories). Crates.io handles integrity verification via its own checksums.",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Evaluate APT/RPM/AUR packaging",
+            "description": "Determine whether to publish to Linux package repos. APT repo needs GPG-signed Release files. RPM needs GPG-signed packages. AUR (Arch) is community-maintained, low overhead. Consider starting with AUR + direct download and expanding later based on demand.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "GitHub Actions release workflow",
+        "description": "Unified CI workflow that builds, signs, and publishes releases for all platforms on git tag push.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [4, 5, 6],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define stable artifact naming convention",
+            "description": "Use version-free filenames so `/releases/latest/download/` URLs are permanent: secrt-macos-universal, secrt-macos-arm64, secrt-macos-x86_64, secrt-linux-x86_64, secrt-linux-aarch64, secrt-windows-x86_64.exe. Version info lives in the GitHub Release tag/title, not the filename.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Create release workflow triggered on version tags",
+            "description": "Trigger on `v*` tags. Matrix build: macOS (universal + arch-specific), Windows (x86_64), Linux (x86_64-musl, aarch64-musl). Each job builds, signs (platform-specific), and uploads artifacts using the stable naming convention.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Auto-create GitHub Release with artifacts",
+            "description": "After all build jobs complete, create a GitHub Release with all signed binaries, checksums file, and GPG signature. Use `gh release create` or softprops/action-gh-release.",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Add download links to README",
+            "description": "Add an Install section with permanent latest-release download links using GitHub's `/releases/latest/download/` URL pattern. E.g. `https://github.com/getsecrt/secrt-rs/releases/latest/download/secrt-macos-universal`. Include links for macOS (universal), Linux (x86_64, aarch64), and Windows. These URLs never need updating because filenames are version-free.",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Update Homebrew formula on release",
+            "description": "After GitHub Release is created, auto-update the Homebrew tap formula with new version, URL, and SHA-256. Can use a dispatch event or a separate workflow in the tap repo.",
+            "status": "pending"
+          },
+          {
+            "id": 6,
+            "title": "Document release workflow in CLAUDE.md for agent automation",
+            "description": "Add a Release section to CLAUDE.md (or AGENTS.md) that documents the full release process so AI agents can execute it: bump version in Cargo.toml, update CHANGELOG, create git tag (v*.*.*), push tag to trigger CI, verify CI artifacts, confirm GitHub Release is published, verify Homebrew formula updated. Include pre-flight checks (tests pass, clippy clean, no uncommitted changes), signing details (which secrets/certs are needed), and rollback steps. The goal is that an agent reading CLAUDE.md can cut a release end-to-end.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Add coverage exclusion annotations to untestable code",
+        "description": "Rust's #[coverage(off)] attribute is still unstable (tracking issue rust-lang/rust#134749). Once stabilized on stable Rust, annotate the ~129 lines of genuinely untestable code (main.rs I/O wiring, ring crypto internal errors, unreachable branches) so cargo llvm-cov reports accurate achievable coverage. See docs/test-coverage.md 'Theoretical Coverage Ceiling' section for the full list.",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": []
       }
     ]
   }
