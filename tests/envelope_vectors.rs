@@ -6,11 +6,13 @@ use std::collections::HashMap;
 // We need to access the crate's envelope module
 use secrt::envelope;
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct VectorFile {
     vectors: Vec<Vector>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct Vector {
     description: String,
@@ -29,10 +31,10 @@ struct Vector {
 fn load_vectors() -> VectorFile {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../secrt/spec/v1/envelope.vectors.json"
+        "/tests/fixtures/envelope.vectors.json"
     );
-    let data = std::fs::read_to_string(path)
-        .expect("failed to read envelope.vectors.json — ensure ../secrt/spec/v1/ exists");
+    let data =
+        std::fs::read_to_string(path).expect("failed to read tests/fixtures/envelope.vectors.json");
     serde_json::from_str(&data).expect("failed to parse envelope.vectors.json")
 }
 

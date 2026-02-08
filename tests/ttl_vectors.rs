@@ -24,10 +24,10 @@ struct InvalidVector {
 fn load_vectors() -> VectorFile {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../secrt/spec/v1/cli.vectors.json"
+        "/tests/fixtures/cli.vectors.json"
     );
-    let data = std::fs::read_to_string(path)
-        .expect("failed to read cli.vectors.json — ensure ../secrt/spec/v1/ exists");
+    let data =
+        std::fs::read_to_string(path).expect("failed to read tests/fixtures/cli.vectors.json");
     serde_json::from_str(&data).expect("failed to parse cli.vectors.json")
 }
 

@@ -1,4 +1,4 @@
-.PHONY: build release test check size clean
+.PHONY: build release test check size clean coverage
 
 build:
 	cargo build
@@ -16,6 +16,9 @@ check:
 size: release
 	@ls -la target/release/secrt
 	@du -h target/release/secrt
+
+coverage:
+	cargo llvm-cov --html --open
 
 clean:
 	cargo clean

@@ -1,15 +1,8 @@
-mod burn;
-mod claim;
-mod cli;
-mod client;
-mod color;
-mod completion;
-mod create;
-mod envelope;
-mod passphrase;
-
 use std::io::{self, Write};
 use std::os::fd::AsRawFd;
+
+use secrt::cli;
+use secrt::envelope;
 
 fn main() {
     let mut deps = cli::Deps {

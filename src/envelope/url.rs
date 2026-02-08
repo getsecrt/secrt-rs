@@ -74,3 +74,107 @@ pub fn parse_share_url(raw_url: &str) -> Result<(String, Vec<u8>), EnvelopeError
 pub fn format_share_link(share_url: &str, url_key: &[u8]) -> String {
     format!("{}#v1.{}", share_url, b64_encode(url_key))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_key() -> Vec<u8> {
+        vec![42u8; URL_KEY_LEN]
+    }
+
+    fn make_key_b64() -> String {
+        b64_encode(&make_key())
+    }
+
+    #[test]
+    fn parse_full_url() {
+        let key = make_key();
+        let key_b64 = make_key_b64();
+        let url = format!("https://secrt.ca/s/abc123#v1.{}", key_b64);
+        let (id, url_key) = parse_share_url(&url).unwrap();
+        assert_eq!(id, "abc123");
+        assert_eq!(url_key, key);
+    }
+
+    #[test]
+    fn parse_bare_id() {
+        let key = make_key();
+        let key_b64 = make_key_b64();
+        let url = format!("abc123#v1.{}", key_b64);
+        let (id, url_key) = parse_share_url(&url).unwrap();
+        assert_eq!(id, "abc123");
+        assert_eq!(url_key, key);
+    }
+
+    #[test]
+    fn parse_url_with_port() {
+        let key = make_key();
+        let key_b64 = make_key_b64();
+        let url = format!("https://localhost:8443/s/testid#v1.{}", key_b64);
+        let (id, url_key) = parse_share_url(&url).unwrap();
+        assert_eq!(id, "testid");
+        assert_eq!(url_key, key);
+    }
+
+    #[test]
+    fn parse_missing_fragment() {
+        let err = parse_share_url("https://secrt.ca/s/abc123");
+        assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
+    }
+
+    #[test]
+    fn parse_no_s_path() {
+        let key_b64 = make_key_b64();
+        let url = format!("https://secrt.ca/x/abc#v1.{}", key_b64);
+        let err = parse_share_url(&url);
+        assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
+    }
+
+    #[test]
+    fn parse_wrong_version() {
+        let key_b64 = make_key_b64();
+        let url = format!("https://secrt.ca/s/abc#v2.{}", key_b64);
+        let err = parse_share_url(&url);
+        assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
+    }
+
+    #[test]
+    fn parse_invalid_base64() {
+        let err = parse_share_url("https://secrt.ca/s/abc#v1.!!!invalid!!!");
+        assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
+    }
+
+    #[test]
+    fn parse_wrong_key_length() {
+        // 16 bytes instead of 32
+        let short_key = b64_encode(&[0u8; 16]);
+        let url = format!("https://secrt.ca/s/abc#v1.{}", short_key);
+        let err = parse_share_url(&url);
+        assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
+    }
+
+    #[test]
+    fn parse_bare_no_hash() {
+        let err = parse_share_url("abc123");
+        assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
+    }
+
+    #[test]
+    fn format_roundtrip() {
+        let key = make_key();
+        let share_url = "https://secrt.ca/s/abc123";
+        let link = format_share_link(share_url, &key);
+        let (id, url_key) = parse_share_url(&link).unwrap();
+        assert_eq!(id, "abc123");
+        assert_eq!(url_key, key);
+    }
+
+    #[test]
+    fn parse_empty_id_in_path() {
+        let key_b64 = make_key_b64();
+        let url = format!("https://secrt.ca/s/#v1.{}", key_b64);
+        let err = parse_share_url(&url);
+        assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
+    }
+}

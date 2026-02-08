@@ -8,3 +8,20 @@ pub fn color_func(is_tty: bool) -> ColorFn {
         Box::new(|_code: &str, text: &str| text.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tty_wraps_ansi() {
+        let c = color_func(true);
+        assert_eq!(c("36", "text"), "\x1b[36mtext\x1b[0m");
+    }
+
+    #[test]
+    fn non_tty_plain() {
+        let c = color_func(false);
+        assert_eq!(c("36", "text"), "text");
+    }
+}

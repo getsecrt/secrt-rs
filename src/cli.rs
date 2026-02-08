@@ -239,8 +239,12 @@ fn print_usage(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
     let _ = write!(
         deps.stderr,
-        "{} — one-time secret sharing\n\nRun '{}' for usage.\n",
+        "{} — one-time secret sharing\n\n  {}                    {}\n  {}               {}\n\nRun '{}' for full usage.\n",
         c("36", "secrt"),
+        c("36", "secrt create"),
+        c("2", "share a secret (interactive)"),
+        c("36", "secrt claim <url>"),
+        c("2", "retrieve a secret"),
         c("36", "secrt help")
     );
 }
@@ -424,4 +428,217 @@ pub fn print_burn_help(deps: &mut Deps) {
         c("36", "burn"),
         c("33", "--api-key"),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(strs: &[&str]) -> Vec<String> {
+        strs.iter().map(|s| s.to_string()).collect()
+    }
+
+    // --- parse_flags tests ---
+
+    #[test]
+    fn flags_empty() {
+        let pa = parse_flags(&s(&[])).unwrap();
+        assert!(pa.args.is_empty());
+        assert!(!pa.json);
+        assert!(pa.base_url.is_empty());
+        assert!(pa.api_key.is_empty());
+    }
+
+    #[test]
+    fn flags_json() {
+        let pa = parse_flags(&s(&["--json"])).unwrap();
+        assert!(pa.json);
+    }
+
+    #[test]
+    fn flags_base_url() {
+        let pa = parse_flags(&s(&["--base-url", "https://example.com"])).unwrap();
+        assert_eq!(pa.base_url, "https://example.com");
+        assert!(pa.base_url_from_flag);
+    }
+
+    #[test]
+    fn flags_api_key() {
+        let pa = parse_flags(&s(&["--api-key", "sk_test"])).unwrap();
+        assert_eq!(pa.api_key, "sk_test");
+    }
+
+    #[test]
+    fn flags_ttl() {
+        let pa = parse_flags(&s(&["--ttl", "5m"])).unwrap();
+        assert_eq!(pa.ttl, "5m");
+    }
+
+    #[test]
+    fn flags_text() {
+        let pa = parse_flags(&s(&["--text", "hello"])).unwrap();
+        assert_eq!(pa.text, "hello");
+    }
+
+    #[test]
+    fn flags_file() {
+        let pa = parse_flags(&s(&["--file", "/tmp/secret.txt"])).unwrap();
+        assert_eq!(pa.file, "/tmp/secret.txt");
+    }
+
+    #[test]
+    fn flags_passphrase_prompt() {
+        let pa = parse_flags(&s(&["--passphrase-prompt"])).unwrap();
+        assert!(pa.passphrase_prompt);
+    }
+
+    #[test]
+    fn flags_passphrase_env() {
+        let pa = parse_flags(&s(&["--passphrase-env", "MY_PASS"])).unwrap();
+        assert_eq!(pa.passphrase_env, "MY_PASS");
+    }
+
+    #[test]
+    fn flags_passphrase_file() {
+        let pa = parse_flags(&s(&["--passphrase-file", "/tmp/pass"])).unwrap();
+        assert_eq!(pa.passphrase_file, "/tmp/pass");
+    }
+
+    #[test]
+    fn flags_missing_value_base_url() {
+        let err = parse_flags(&s(&["--base-url"]));
+        assert!(matches!(err, Err(CliError::Error(_))));
+    }
+
+    #[test]
+    fn flags_missing_value_api_key() {
+        let err = parse_flags(&s(&["--api-key"]));
+        assert!(matches!(err, Err(CliError::Error(_))));
+    }
+
+    #[test]
+    fn flags_missing_value_ttl() {
+        let err = parse_flags(&s(&["--ttl"]));
+        assert!(matches!(err, Err(CliError::Error(_))));
+    }
+
+    #[test]
+    fn flags_missing_value_text() {
+        let err = parse_flags(&s(&["--text"]));
+        assert!(matches!(err, Err(CliError::Error(_))));
+    }
+
+    #[test]
+    fn flags_missing_value_file() {
+        let err = parse_flags(&s(&["--file"]));
+        assert!(matches!(err, Err(CliError::Error(_))));
+    }
+
+    #[test]
+    fn flags_missing_value_passphrase_env() {
+        let err = parse_flags(&s(&["--passphrase-env"]));
+        assert!(matches!(err, Err(CliError::Error(_))));
+    }
+
+    #[test]
+    fn flags_missing_value_passphrase_file() {
+        let err = parse_flags(&s(&["--passphrase-file"]));
+        assert!(matches!(err, Err(CliError::Error(_))));
+    }
+
+    #[test]
+    fn flags_help() {
+        let err = parse_flags(&s(&["--help"]));
+        assert!(matches!(err, Err(CliError::ShowHelp)));
+    }
+
+    #[test]
+    fn flags_help_short() {
+        let err = parse_flags(&s(&["-h"]));
+        assert!(matches!(err, Err(CliError::ShowHelp)));
+    }
+
+    #[test]
+    fn flags_unknown() {
+        let err = parse_flags(&s(&["--bogus"]));
+        assert!(matches!(err, Err(CliError::Error(_))));
+    }
+
+    #[test]
+    fn flags_positional() {
+        let pa = parse_flags(&s(&["foo", "bar"])).unwrap();
+        assert_eq!(pa.args, vec!["foo", "bar"]);
+    }
+
+    #[test]
+    fn flags_mixed() {
+        let pa = parse_flags(&s(&["myurl", "--json", "--ttl", "5m"])).unwrap();
+        assert_eq!(pa.args, vec!["myurl"]);
+        assert!(pa.json);
+        assert_eq!(pa.ttl, "5m");
+    }
+
+    // --- resolve_globals tests ---
+
+    fn make_deps_for_globals(env: std::collections::HashMap<String, String>) -> Deps {
+        Deps {
+            stdin: Box::new(std::io::Cursor::new(Vec::new())),
+            stdout: Box::new(Vec::new()),
+            stderr: Box::new(Vec::new()),
+            is_tty: Box::new(|| false),
+            is_stdout_tty: Box::new(|| false),
+            getenv: Box::new(move |key: &str| env.get(key).cloned()),
+            rand_bytes: Box::new(|_buf: &mut [u8]| Ok(())),
+            read_pass: Box::new(|_prompt: &str, _w: &mut dyn Write| {
+                Err(io::Error::new(io::ErrorKind::Other, "no pass"))
+            }),
+        }
+    }
+
+    #[test]
+    fn globals_default_base_url() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let mut pa = ParsedArgs::default();
+        resolve_globals(&mut pa, &deps);
+        assert_eq!(pa.base_url, "https://secrt.ca");
+    }
+
+    #[test]
+    fn globals_env_base_url() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("SECRET_BASE_URL".into(), "https://test.example.com".into());
+        let deps = make_deps_for_globals(env);
+        let mut pa = ParsedArgs::default();
+        resolve_globals(&mut pa, &deps);
+        assert_eq!(pa.base_url, "https://test.example.com");
+    }
+
+    #[test]
+    fn globals_flag_overrides_env() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("SECRET_BASE_URL".into(), "https://env.example.com".into());
+        let deps = make_deps_for_globals(env);
+        let mut pa = ParsedArgs::default();
+        pa.base_url = "https://flag.example.com".into();
+        resolve_globals(&mut pa, &deps);
+        assert_eq!(pa.base_url, "https://flag.example.com");
+    }
+
+    #[test]
+    fn globals_env_api_key() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("SECRET_API_KEY".into(), "sk_from_env".into());
+        let deps = make_deps_for_globals(env);
+        let mut pa = ParsedArgs::default();
+        resolve_globals(&mut pa, &deps);
+        assert_eq!(pa.api_key, "sk_from_env");
+    }
+
+    #[test]
+    fn globals_no_env_api_key() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let mut pa = ParsedArgs::default();
+        resolve_globals(&mut pa, &deps);
+        assert!(pa.api_key.is_empty());
+    }
 }

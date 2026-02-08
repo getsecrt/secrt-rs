@@ -106,3 +106,221 @@ pub fn write_error(w: &mut dyn Write, json_mode: bool, msg: &str) {
         let _ = writeln!(w, "error: {}", msg);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::io::{self, Cursor};
+    use std::sync::{Arc, Mutex};
+
+    fn make_deps(
+        env: HashMap<String, String>,
+        read_pass_responses: Vec<String>,
+        read_pass_err: Option<String>,
+    ) -> Deps {
+        let responses = Arc::new(Mutex::new(read_pass_responses));
+        Deps {
+            stdin: Box::new(Cursor::new(Vec::new())),
+            stdout: Box::new(Vec::new()),
+            stderr: Box::new(Vec::new()),
+            is_tty: Box::new(|| false),
+            is_stdout_tty: Box::new(|| false),
+            getenv: Box::new(move |key: &str| env.get(key).cloned()),
+            rand_bytes: Box::new(|_buf: &mut [u8]| Ok(())),
+            read_pass: Box::new(move |_prompt: &str, _w: &mut dyn Write| {
+                if let Some(ref msg) = read_pass_err {
+                    return Err(io::Error::new(io::ErrorKind::Other, msg.clone()));
+                }
+                let mut r = responses.lock().unwrap();
+                if r.is_empty() {
+                    Err(io::Error::new(io::ErrorKind::Other, "no input"))
+                } else {
+                    Ok(r.remove(0))
+                }
+            }),
+        }
+    }
+
+    fn default_deps() -> Deps {
+        make_deps(HashMap::new(), Vec::new(), None)
+    }
+
+    // --- resolve_passphrase tests ---
+
+    #[test]
+    fn no_flags_empty_string() {
+        let pa = ParsedArgs::default();
+        let mut deps = default_deps();
+        let result = resolve_passphrase(&pa, &mut deps).unwrap();
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn multiple_flags_error() {
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_prompt = true;
+        pa.passphrase_env = "MY_VAR".into();
+        let mut deps = default_deps();
+        let err = resolve_passphrase(&pa, &mut deps);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("at most one"));
+    }
+
+    #[test]
+    fn env_happy() {
+        let mut env = HashMap::new();
+        env.insert("MY_PASS".into(), "secret123".into());
+        let mut deps = make_deps(env, Vec::new(), None);
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_env = "MY_PASS".into();
+        let result = resolve_passphrase(&pa, &mut deps).unwrap();
+        assert_eq!(result, "secret123");
+    }
+
+    #[test]
+    fn env_missing() {
+        let mut deps = default_deps();
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_env = "NONEXISTENT".into();
+        let err = resolve_passphrase(&pa, &mut deps);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("empty or not set"));
+    }
+
+    #[test]
+    fn env_empty() {
+        let mut env = HashMap::new();
+        env.insert("MY_PASS".into(), "".into());
+        let mut deps = make_deps(env, Vec::new(), None);
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_env = "MY_PASS".into();
+        let err = resolve_passphrase(&pa, &mut deps);
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn file_happy() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("secrt_test_pass_happy.txt");
+        fs::write(&path, "my-passphrase\n").unwrap();
+        let mut deps = default_deps();
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_file = path.to_str().unwrap().into();
+        let result = resolve_passphrase(&pa, &mut deps).unwrap();
+        assert_eq!(result, "my-passphrase");
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn file_empty() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("secrt_test_pass_empty.txt");
+        fs::write(&path, "").unwrap();
+        let mut deps = default_deps();
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_file = path.to_str().unwrap().into();
+        let err = resolve_passphrase(&pa, &mut deps);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("empty"));
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn file_trims_newlines() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("secrt_test_pass_trim.txt");
+        fs::write(&path, "secret\r\n").unwrap();
+        let mut deps = default_deps();
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_file = path.to_str().unwrap().into();
+        let result = resolve_passphrase(&pa, &mut deps).unwrap();
+        assert_eq!(result, "secret");
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn file_not_found() {
+        let mut deps = default_deps();
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_file = "/tmp/nonexistent_secrt_pass_file_xyz.txt".into();
+        let err = resolve_passphrase(&pa, &mut deps);
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn prompt_happy() {
+        let mut deps = make_deps(HashMap::new(), vec!["mypass".into()], None);
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_prompt = true;
+        let result = resolve_passphrase(&pa, &mut deps).unwrap();
+        assert_eq!(result, "mypass");
+    }
+
+    #[test]
+    fn prompt_empty() {
+        let mut deps = make_deps(HashMap::new(), vec!["".into()], None);
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_prompt = true;
+        let err = resolve_passphrase(&pa, &mut deps);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("must not be empty"));
+    }
+
+    // --- resolve_passphrase_for_create tests ---
+
+    #[test]
+    fn create_prompt_match() {
+        let mut deps = make_deps(
+            HashMap::new(),
+            vec!["pass123".into(), "pass123".into()],
+            None,
+        );
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_prompt = true;
+        let result = resolve_passphrase_for_create(&pa, &mut deps).unwrap();
+        assert_eq!(result, "pass123");
+    }
+
+    #[test]
+    fn create_prompt_mismatch() {
+        let mut deps = make_deps(
+            HashMap::new(),
+            vec!["pass123".into(), "different".into()],
+            None,
+        );
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_prompt = true;
+        let err = resolve_passphrase_for_create(&pa, &mut deps);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("do not match"));
+    }
+
+    #[test]
+    fn create_prompt_empty() {
+        let mut deps = make_deps(HashMap::new(), vec!["".into()], None);
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_prompt = true;
+        let err = resolve_passphrase_for_create(&pa, &mut deps);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("must not be empty"));
+    }
+
+    // --- write_error tests ---
+
+    #[test]
+    fn plain_format() {
+        let mut buf = Vec::new();
+        write_error(&mut buf, false, "something broke");
+        assert_eq!(String::from_utf8(buf).unwrap(), "error: something broke\n");
+    }
+
+    #[test]
+    fn json_format() {
+        let mut buf = Vec::new();
+        write_error(&mut buf, true, "something broke");
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("\"error\""));
+        assert!(output.contains("something broke"));
+    }
+}

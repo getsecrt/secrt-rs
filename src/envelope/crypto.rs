@@ -342,3 +342,470 @@ fn parse_kdf(raw: &serde_json::Value) -> Result<KdfParsed, EnvelopeError> {
         ))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn real_rand(buf: &mut [u8]) -> Result<(), EnvelopeError> {
+        use ring::rand::{SecureRandom, SystemRandom};
+        SystemRandom::new()
+            .fill(buf)
+            .map_err(|_| EnvelopeError::RngError("SystemRandom failed".into()))
+    }
+
+    /// Helper: seal a valid envelope with no passphrase
+    fn seal_valid() -> (SealResult, Vec<u8>) {
+        let plaintext = b"test data".to_vec();
+        let result = seal(SealParams {
+            plaintext: plaintext.clone(),
+            passphrase: String::new(),
+            rand_bytes: &real_rand,
+            hint: None,
+            iterations: 0,
+        })
+        .unwrap();
+        (result, plaintext)
+    }
+
+    /// Helper: modify a JSON field in a sealed envelope
+    fn mutate_envelope(
+        env: &serde_json::Value,
+        path: &[&str],
+        value: serde_json::Value,
+    ) -> serde_json::Value {
+        let mut e = env.clone();
+        let mut target = &mut e;
+        for &key in &path[..path.len() - 1] {
+            target = target.get_mut(key).unwrap();
+        }
+        target[path[path.len() - 1]] = value;
+        e
+    }
+
+    #[test]
+    fn seal_empty_plaintext() {
+        let err = seal(SealParams {
+            plaintext: Vec::new(),
+            passphrase: String::new(),
+            rand_bytes: &real_rand,
+            hint: None,
+            iterations: 0,
+        });
+        assert!(matches!(err, Err(EnvelopeError::EmptyPlaintext)));
+    }
+
+    #[test]
+    fn seal_rng_failure_url_key() {
+        let fail_rand = |_buf: &mut [u8]| -> Result<(), EnvelopeError> {
+            Err(EnvelopeError::RngError("fail".into()))
+        };
+        let err = seal(SealParams {
+            plaintext: b"x".to_vec(),
+            passphrase: String::new(),
+            rand_bytes: &fail_rand,
+            hint: None,
+            iterations: 0,
+        });
+        assert!(matches!(err, Err(EnvelopeError::RngError(_))));
+    }
+
+    #[test]
+    fn seal_rng_failure_kdf_salt() {
+        let call = std::cell::Cell::new(0);
+        let fail_on_second = |buf: &mut [u8]| -> Result<(), EnvelopeError> {
+            let n = call.get();
+            call.set(n + 1);
+            if n == 1 {
+                return Err(EnvelopeError::RngError("fail kdf salt".into()));
+            }
+            real_rand(buf)
+        };
+        let err = seal(SealParams {
+            plaintext: b"x".to_vec(),
+            passphrase: "pass".into(),
+            rand_bytes: &fail_on_second,
+            hint: None,
+            iterations: 300_000,
+        });
+        assert!(matches!(err, Err(EnvelopeError::RngError(_))));
+    }
+
+    #[test]
+    fn seal_rng_failure_hkdf_salt() {
+        // Without passphrase: url_key(call 0), hkdf_salt(call 1)
+        let call = std::cell::Cell::new(0);
+        let fail_on_second = |buf: &mut [u8]| -> Result<(), EnvelopeError> {
+            let n = call.get();
+            call.set(n + 1);
+            if n == 1 {
+                return Err(EnvelopeError::RngError("fail hkdf salt".into()));
+            }
+            real_rand(buf)
+        };
+        let err = seal(SealParams {
+            plaintext: b"x".to_vec(),
+            passphrase: String::new(),
+            rand_bytes: &fail_on_second,
+            hint: None,
+            iterations: 0,
+        });
+        assert!(matches!(err, Err(EnvelopeError::RngError(_))));
+    }
+
+    #[test]
+    fn seal_rng_failure_nonce() {
+        // Without passphrase: url_key(0), hkdf_salt(1), nonce(2)
+        let call = std::cell::Cell::new(0);
+        let fail_on_third = |buf: &mut [u8]| -> Result<(), EnvelopeError> {
+            let n = call.get();
+            call.set(n + 1);
+            if n == 2 {
+                return Err(EnvelopeError::RngError("fail nonce".into()));
+            }
+            real_rand(buf)
+        };
+        let err = seal(SealParams {
+            plaintext: b"x".to_vec(),
+            passphrase: String::new(),
+            rand_bytes: &fail_on_third,
+            hint: None,
+            iterations: 0,
+        });
+        assert!(matches!(err, Err(EnvelopeError::RngError(_))));
+    }
+
+    #[test]
+    fn open_wrong_url_key_length() {
+        let (result, _) = seal_valid();
+        let err = open(OpenParams {
+            envelope: result.envelope,
+            url_key: vec![0u8; 16],
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidUrlKey)));
+    }
+
+    #[test]
+    fn open_bad_json() {
+        let err = open(OpenParams {
+            envelope: serde_json::json!("not an object"),
+            url_key: vec![0u8; 32],
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_wrong_version() {
+        let (result, _) = seal_valid();
+        let env = mutate_envelope(&result.envelope, &["v"], serde_json::json!(2));
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_wrong_suite() {
+        let (result, _) = seal_valid();
+        let env = mutate_envelope(&result.envelope, &["suite"], serde_json::json!("v2-bad"));
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_wrong_enc_alg() {
+        let (result, _) = seal_valid();
+        let env = mutate_envelope(
+            &result.envelope,
+            &["enc", "alg"],
+            serde_json::json!("ChaCha20"),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_bad_nonce_length() {
+        let (result, _) = seal_valid();
+        // A 16-byte nonce instead of 12
+        let bad_nonce = b64_encode(&[0u8; 16]);
+        let env = mutate_envelope(
+            &result.envelope,
+            &["enc", "nonce"],
+            serde_json::json!(bad_nonce),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_ciphertext_too_short() {
+        let (result, _) = seal_valid();
+        let short_ct = b64_encode(&[0u8; 8]);
+        let env = mutate_envelope(
+            &result.envelope,
+            &["enc", "ciphertext"],
+            serde_json::json!(short_ct),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_wrong_hkdf_hash() {
+        let (result, _) = seal_valid();
+        let env = mutate_envelope(
+            &result.envelope,
+            &["hkdf", "hash"],
+            serde_json::json!("SHA-512"),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_wrong_hkdf_salt_length() {
+        let (result, _) = seal_valid();
+        let bad_salt = b64_encode(&[0u8; 16]);
+        let env = mutate_envelope(
+            &result.envelope,
+            &["hkdf", "salt"],
+            serde_json::json!(bad_salt),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_wrong_hkdf_enc_info() {
+        let (result, _) = seal_valid();
+        let env = mutate_envelope(
+            &result.envelope,
+            &["hkdf", "enc_info"],
+            serde_json::json!("wrong"),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_wrong_hkdf_claim_info() {
+        let (result, _) = seal_valid();
+        let env = mutate_envelope(
+            &result.envelope,
+            &["hkdf", "claim_info"],
+            serde_json::json!("wrong"),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_wrong_hkdf_length() {
+        let (result, _) = seal_valid();
+        let env = mutate_envelope(&result.envelope, &["hkdf", "length"], serde_json::json!(64));
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_kdf_missing_name() {
+        let (result, _) = seal_valid();
+        let env = mutate_envelope(&result.envelope, &["kdf"], serde_json::json!({}));
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_kdf_unknown_name() {
+        let (result, _) = seal_valid();
+        let env = mutate_envelope(
+            &result.envelope,
+            &["kdf"],
+            serde_json::json!({"name": "argon2"}),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_kdf_pbkdf2_short_salt() {
+        let (result, _) = seal_valid();
+        let short_salt = b64_encode(&[0u8; 8]);
+        let env = mutate_envelope(
+            &result.envelope,
+            &["kdf"],
+            serde_json::json!({
+                "name": "PBKDF2-SHA256",
+                "salt": short_salt,
+                "iterations": 600000,
+                "length": 32
+            }),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: "test".into(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_kdf_pbkdf2_low_iterations() {
+        let (result, _) = seal_valid();
+        let salt = b64_encode(&[0u8; 16]);
+        let env = mutate_envelope(
+            &result.envelope,
+            &["kdf"],
+            serde_json::json!({
+                "name": "PBKDF2-SHA256",
+                "salt": salt,
+                "iterations": 100,
+                "length": 32
+            }),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: "test".into(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_kdf_pbkdf2_wrong_length() {
+        let (result, _) = seal_valid();
+        let salt = b64_encode(&[0u8; 16]);
+        let env = mutate_envelope(
+            &result.envelope,
+            &["kdf"],
+            serde_json::json!({
+                "name": "PBKDF2-SHA256",
+                "salt": salt,
+                "iterations": 600000,
+                "length": 64
+            }),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: "test".into(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn derive_claim_token_wrong_length() {
+        let err = derive_claim_token(&[0u8; 16]);
+        assert!(matches!(err, Err(EnvelopeError::InvalidUrlKey)));
+    }
+
+    #[test]
+    fn b64_decode_invalid() {
+        let err = b64_decode("!!!invalid!!!");
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_decryption_fails_with_wrong_key() {
+        let (result, _) = seal_valid();
+        let mut bad_key = result.url_key.clone();
+        bad_key[0] ^= 0xFF;
+        let err = open(OpenParams {
+            envelope: result.envelope,
+            url_key: bad_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::DecryptionFailed)));
+    }
+
+    #[test]
+    fn seal_with_hint() {
+        let mut hint = std::collections::HashMap::new();
+        hint.insert("type".to_string(), "text".to_string());
+        let result = seal(SealParams {
+            plaintext: b"with hint".to_vec(),
+            passphrase: String::new(),
+            rand_bytes: &real_rand,
+            hint: Some(hint.clone()),
+            iterations: 0,
+        })
+        .unwrap();
+        let env_hint = result.envelope.get("hint").unwrap();
+        assert_eq!(env_hint["type"], "text");
+    }
+
+    #[test]
+    fn error_display_coverage() {
+        // Exercise Display impl for all error variants
+        let _ = format!("{}", EnvelopeError::EmptyPlaintext);
+        let _ = format!("{}", EnvelopeError::InvalidEnvelope("x".into()));
+        let _ = format!("{}", EnvelopeError::DecryptionFailed);
+        let _ = format!("{}", EnvelopeError::InvalidFragment("x".into()));
+        let _ = format!("{}", EnvelopeError::InvalidUrlKey);
+        let _ = format!("{}", EnvelopeError::InvalidTtl("x".into()));
+        let _ = format!("{}", EnvelopeError::RngError("x".into()));
+    }
+
+    #[test]
+    fn seal_with_empty_hint_omitted() {
+        let hint = std::collections::HashMap::new();
+        let result = seal(SealParams {
+            plaintext: b"no hint".to_vec(),
+            passphrase: String::new(),
+            rand_bytes: &real_rand,
+            hint: Some(hint),
+            iterations: 0,
+        })
+        .unwrap();
+        assert!(result.envelope.get("hint").is_none());
+    }
+}
