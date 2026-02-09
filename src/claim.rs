@@ -117,6 +117,12 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
         let _ = writeln!(deps.stdout, "{}", serde_json::to_string(&out).unwrap());
     } else {
         let _ = deps.stdout.write_all(&plaintext);
+        // Add a trailing newline for clean terminal display, but only when
+        // stdout is a TTY and the secret doesn't already end with one.
+        // Piped output remains byte-exact to preserve secret integrity.
+        if (deps.is_stdout_tty)() && !plaintext.ends_with(b"\n") {
+            let _ = writeln!(deps.stdout);
+        }
     }
 
     0
