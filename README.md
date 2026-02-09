@@ -195,12 +195,20 @@ api_key = "sk_live_abc123"
 # Custom server URL (default: https://secrt.ca)
 base_url = "https://my-secrt-server.example.com"
 
-# Default passphrase for encryption
+# Default TTL for secrets (e.g., 5m, 2h, 1d, 1w)
+default_ttl = "24h"
+
+# Default passphrase for encryption and decryption
 passphrase = "my-default-passphrase"
+
+# Additional passphrases to try when claiming (tried in order)
+decryption_passphrases = ["old-passphrase", "team-passphrase"]
 
 # Show secret input as typed (default: false)
 show_input = true
 ```
+
+The `decryption_passphrases` array is useful for teams rotating passphrases — when claiming a secret, secrt tries the default `passphrase` first, then each entry in `decryption_passphrases` in order, before falling back to an interactive prompt. This allows seamless decryption of secrets encrypted with older passphrases without manual intervention.
 
 ### Config subcommands
 
@@ -227,11 +235,11 @@ touch ~/.config/secrt/config.toml
 chmod 600 ~/.config/secrt/config.toml
 ```
 
-If the file is group- or world-readable, secrt will warn and **skip loading secrets** (api_key, passphrase) from it. Non-sensitive settings like base_url will still be loaded.
+If the file is group- or world-readable, secrt will warn and **skip loading secrets** (api_key, passphrase, decryption_passphrases) from it. Non-sensitive settings like base_url and default_ttl will still be loaded.
 
 ### OS keychain
 
-When built with the `keychain` feature, secrt can read `api_key` and `passphrase` from your OS credential store (macOS Keychain, Linux keyutils, Windows Credential Manager).
+When built with the `keychain` feature, secrt can read `api_key`, `passphrase`, and `decryption_passphrases` from your OS credential store (macOS Keychain, Linux keyutils, Windows Credential Manager). For `decryption_passphrases`, store a JSON array string (e.g., `["p1","p2"]`).
 
 ```sh
 # Install with keychain support
