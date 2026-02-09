@@ -126,6 +126,51 @@ fn claim_success_plain() {
 }
 
 #[test]
+fn claim_success_tty_shows_label() {
+    let plaintext = b"my secret value";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .is_stdout_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(stdout.to_string(), "my secret value\n");
+    assert!(
+        stderr.to_string().contains("Secret:"),
+        "TTY claim should show label on stderr: {}",
+        stderr.to_string()
+    );
+}
+
+#[test]
+fn claim_success_non_tty_no_label() {
+    let plaintext = b"my secret value";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .is_stdout_tty(false)
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    // Non-TTY: exact bytes, no label, no trailing newline
+    assert_eq!(stdout.to_string(), "my secret value");
+    assert!(
+        !stderr.to_string().contains("Secret:"),
+        "non-TTY claim should NOT show label: {}",
+        stderr.to_string()
+    );
+}
+
+#[test]
 fn claim_success_json() {
     let plaintext = b"json claim test";
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
@@ -209,6 +254,31 @@ fn claim_api_error() {
     assert!(
         stderr.to_string().contains("claim failed"),
         "stderr: {}",
+        stderr.to_string()
+    );
+}
+
+#[test]
+fn claim_silent_suppresses_label() {
+    let plaintext = b"silent claim test";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .is_stdout_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "claim", &share_link, "--silent"]),
+        &mut deps,
+    );
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(stdout.to_string(), "silent claim test\n");
+    assert!(
+        !stderr.to_string().contains("Secret:"),
+        "silent claim should NOT show label: {}",
         stderr.to_string()
     );
 }

@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 
 use crate::cli::{parse_flags, print_create_help, resolve_globals, CliError, Deps, ParsedArgs};
 use crate::client::CreateRequest;
+use crate::color::{color_func, SUCCESS, URL, DIM, WARN};
 use crate::envelope::{self, format_share_link, SealParams};
 use crate::passphrase::{resolve_passphrase_for_create, write_error};
 
@@ -14,7 +15,7 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
             return 0;
         }
         Err(CliError::Error(e)) => {
-            write_error(&mut deps.stderr, false, &e);
+            write_error(&mut deps.stderr, false, (deps.is_tty)(), &e);
             return 2;
         }
     };
@@ -24,7 +25,7 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
     let mut plaintext = match read_plaintext(&pa, deps) {
         Ok(p) => p,
         Err(e) => {
-            write_error(&mut deps.stderr, pa.json, &e);
+            write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &e);
             return 2;
         }
     };
@@ -34,7 +35,7 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
         let trimmed = String::from_utf8_lossy(&plaintext);
         let trimmed = trimmed.trim();
         if trimmed.is_empty() {
-            write_error(&mut deps.stderr, pa.json, "input is empty after trimming");
+            write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), "input is empty after trimming");
             return 2;
         }
         plaintext = trimmed.as_bytes().to_vec();
@@ -45,7 +46,7 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
         match envelope::parse_ttl(&pa.ttl) {
             Ok(ttl) => Some(ttl),
             Err(e) => {
-                write_error(&mut deps.stderr, pa.json, &format!("invalid TTL: {}", e));
+                write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &format!("invalid TTL: {}", e));
                 return 2;
             }
         }
@@ -57,7 +58,7 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
     let passphrase = match resolve_passphrase_for_create(&pa, deps) {
         Ok(p) => p,
         Err(e) => {
-            write_error(&mut deps.stderr, pa.json, &e);
+            write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &e);
             return 2;
         }
     };
@@ -77,6 +78,7 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
             write_error(
                 &mut deps.stderr,
                 pa.json,
+                (deps.is_tty)(),
                 &format!("encryption failed: {}", e),
             );
             return 1;
@@ -84,8 +86,10 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
     };
 
     // Upload to server
-    if (deps.is_tty)() {
-        let _ = write!(deps.stderr, "Encrypting and uploading...");
+    let is_tty = (deps.is_tty)();
+    if is_tty && !pa.silent {
+        let c = color_func(true);
+        let _ = write!(deps.stderr, "{} Encrypting and uploading...", c(WARN, "\u{25CB}"));
         let _ = deps.stderr.flush();
     }
     let client = (deps.make_api)(&pa.base_url, &pa.api_key);
@@ -96,16 +100,17 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
         ttl_seconds,
     }) {
         Ok(r) => {
-            if (deps.is_tty)() {
-                let _ = writeln!(deps.stderr);
+            if is_tty && !pa.silent {
+                let c = color_func(true);
+                let _ = write!(deps.stderr, "\r{} Encrypted and uploaded!     \n", c(SUCCESS, "\u{2713}"));
             }
             r
         }
         Err(e) => {
-            if (deps.is_tty)() {
+            if is_tty && !pa.silent {
                 let _ = writeln!(deps.stderr);
             }
-            write_error(&mut deps.stderr, pa.json, &e);
+            write_error(&mut deps.stderr, pa.json, is_tty, &e);
             return 1;
         }
     };
@@ -121,6 +126,9 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
             "expires_at": resp.expires_at,
         });
         let _ = writeln!(deps.stdout, "{}", serde_json::to_string(&out).unwrap());
+    } else if (deps.is_stdout_tty)() {
+        let c = color_func(true);
+        let _ = writeln!(deps.stdout, "{}", c(URL, &share_link));
     } else {
         let _ = writeln!(deps.stdout, "{}", share_link);
     }
@@ -155,17 +163,62 @@ fn read_plaintext(pa: &ParsedArgs, deps: &mut Deps) -> Result<Vec<u8>, String> {
 
     // stdin
     if (deps.is_tty)() && !pa.multi_line {
-        // Default interactive: single-line, no echo (like a password prompt)
-        let secret = (deps.read_pass)("Enter secret (input hidden): ", &mut deps.stderr)
-            .map_err(|e| format!("read secret: {}", e))?;
-        if secret.is_empty() {
-            return Err("input is empty".into());
+        let c = color_func((deps.is_tty)());
+        // Determine effective show mode
+        let show_input = if pa.hidden {
+            false
+        } else if pa.show {
+            true
+        } else {
+            pa.show_default
+        };
+
+        if show_input {
+            if !pa.silent {
+                let _ = writeln!(deps.stderr, "{}", c(WARN, "Enter your secret below (input will be shown)"));
+            }
+            let prompt = if pa.silent { "" } else { "Secret: " };
+            if !pa.silent {
+                let _ = write!(deps.stderr, "{}", c(DIM, prompt));
+                let _ = deps.stderr.flush();
+            }
+            let mut line = String::new();
+            std::io::BufRead::read_line(&mut std::io::BufReader::new(&mut *deps.stdin), &mut line)
+                .map_err(|e| format!("read secret: {}", e))?;
+            // Strip trailing newline from the input line
+            if line.ends_with('\n') {
+                line.pop();
+                if line.ends_with('\r') {
+                    line.pop();
+                }
+            }
+            if line.is_empty() {
+                return Err("input is empty".into());
+            }
+            return Ok(line.into_bytes());
+        } else {
+            if !pa.silent {
+                let _ = writeln!(deps.stderr, "{}", c(DIM, "Enter your secret below (input is hidden)"));
+            }
+            let prompt = if pa.silent {
+                String::new()
+            } else {
+                format!("{} ", c(DIM, "Secret:"))
+            };
+            let secret = (deps.read_pass)(&prompt, &mut deps.stderr)
+                .map_err(|e| format!("read secret: {}", e))?;
+            if secret.is_empty() {
+                return Err("input is empty".into());
+            }
+            return Ok(secret.into_bytes());
         }
-        return Ok(secret.into_bytes());
     }
 
     if (deps.is_tty)() && pa.multi_line {
-        let _ = writeln!(deps.stderr, "Enter secret (Ctrl+D on empty line to finish):");
+        let c = color_func(true);
+        if !pa.silent {
+            let _ = writeln!(deps.stderr, "{}", c(DIM, "Enter secret (Ctrl+D on empty line to finish):"));
+        }
     }
 
     // Multi-line TTY or piped/redirected stdin: read all bytes

@@ -3,7 +3,7 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="create claim burn version help completion"
+    commands="create claim burn config version help completion"
 
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=($(compgen -W "${commands}" -- "${cur}"))
@@ -12,13 +12,13 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
 
     case "${prev}" in
         create)
-            COMPREPLY=($(compgen -W "--ttl --api-key --base-url --json --text --file --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
+            COMPREPLY=($(compgen -W "--ttl --api-key --base-url --json --text --file --show --hidden --silent --multi-line --trim --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
             ;;
         claim)
-            COMPREPLY=($(compgen -W "--base-url --json --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
+            COMPREPLY=($(compgen -W "--base-url --json --silent --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
             ;;
         burn)
-            COMPREPLY=($(compgen -W "--api-key --base-url --json --help" -- "${cur}"))
+            COMPREPLY=($(compgen -W "--api-key --base-url --json --silent --help" -- "${cur}"))
             ;;
         completion)
             COMPREPLY=($(compgen -W "bash zsh fish" -- "${cur}"))
@@ -37,6 +37,7 @@ _secrt() {
         'create:Encrypt and upload a secret'
         'claim:Retrieve and decrypt a secret'
         'burn:Destroy a secret (requires API key)'
+        'config:Show effective configuration'
         'version:Show version'
         'help:Show help'
         'completion:Output shell completion script'
@@ -60,6 +61,11 @@ _secrt() {
                         '--json[Output as JSON]' \
                         '--text[Secret text]:text:' \
                         '--file[Secret file]:file:_files' \
+                        {-s,--show}'[Show input as you type]' \
+                        '--hidden[Hide input]' \
+                        '--silent[Suppress status output]' \
+                        {-m,--multi-line}'[Multi-line input]' \
+                        '--trim[Trim whitespace]' \
                         '--passphrase-prompt[Prompt for passphrase]' \
                         '--passphrase-env[Passphrase env var]:var:' \
                         '--passphrase-file[Passphrase file]:file:_files' \
@@ -69,6 +75,7 @@ _secrt() {
                     _arguments \
                         '--base-url[Server URL]:url:' \
                         '--json[Output as JSON]' \
+                        '--silent[Suppress status output]' \
                         '--passphrase-prompt[Prompt for passphrase]' \
                         '--passphrase-env[Passphrase env var]:var:' \
                         '--passphrase-file[Passphrase file]:file:_files' \
@@ -79,6 +86,7 @@ _secrt() {
                         '--api-key[API key]:key:' \
                         '--base-url[Server URL]:url:' \
                         '--json[Output as JSON]' \
+                        '--silent[Suppress status output]' \
                         '--help[Show help]'
                     ;;
                 completion)
@@ -96,6 +104,7 @@ pub const FISH_COMPLETION: &str = r#"complete -c secrt -f
 complete -c secrt -n '__fish_use_subcommand' -a create -d 'Encrypt and upload a secret'
 complete -c secrt -n '__fish_use_subcommand' -a claim -d 'Retrieve and decrypt a secret'
 complete -c secrt -n '__fish_use_subcommand' -a burn -d 'Destroy a secret (requires API key)'
+complete -c secrt -n '__fish_use_subcommand' -a config -d 'Show effective configuration'
 complete -c secrt -n '__fish_use_subcommand' -a version -d 'Show version'
 complete -c secrt -n '__fish_use_subcommand' -a help -d 'Show help'
 complete -c secrt -n '__fish_use_subcommand' -a completion -d 'Output shell completion script'
@@ -106,12 +115,18 @@ complete -c secrt -n '__fish_seen_subcommand_from create' -l base-url -d 'Server
 complete -c secrt -n '__fish_seen_subcommand_from create' -l json -d 'Output as JSON'
 complete -c secrt -n '__fish_seen_subcommand_from create' -l text -d 'Secret text'
 complete -c secrt -n '__fish_seen_subcommand_from create' -l file -d 'Secret file' -F
+complete -c secrt -n '__fish_seen_subcommand_from create' -s s -l show -d 'Show input as you type'
+complete -c secrt -n '__fish_seen_subcommand_from create' -l hidden -d 'Hide input'
+complete -c secrt -n '__fish_seen_subcommand_from create' -l silent -d 'Suppress status output'
+complete -c secrt -n '__fish_seen_subcommand_from create' -s m -l multi-line -d 'Multi-line input'
+complete -c secrt -n '__fish_seen_subcommand_from create' -l trim -d 'Trim whitespace'
 complete -c secrt -n '__fish_seen_subcommand_from create' -l passphrase-prompt -d 'Prompt for passphrase'
 complete -c secrt -n '__fish_seen_subcommand_from create' -l passphrase-env -d 'Passphrase env var'
 complete -c secrt -n '__fish_seen_subcommand_from create' -l passphrase-file -d 'Passphrase file' -F
 
 complete -c secrt -n '__fish_seen_subcommand_from claim' -l base-url -d 'Server URL'
 complete -c secrt -n '__fish_seen_subcommand_from claim' -l json -d 'Output as JSON'
+complete -c secrt -n '__fish_seen_subcommand_from claim' -l silent -d 'Suppress status output'
 complete -c secrt -n '__fish_seen_subcommand_from claim' -l passphrase-prompt -d 'Prompt for passphrase'
 complete -c secrt -n '__fish_seen_subcommand_from claim' -l passphrase-env -d 'Passphrase env var'
 complete -c secrt -n '__fish_seen_subcommand_from claim' -l passphrase-file -d 'Passphrase file' -F
@@ -119,6 +134,7 @@ complete -c secrt -n '__fish_seen_subcommand_from claim' -l passphrase-file -d '
 complete -c secrt -n '__fish_seen_subcommand_from burn' -l api-key -d 'API key'
 complete -c secrt -n '__fish_seen_subcommand_from burn' -l base-url -d 'Server URL'
 complete -c secrt -n '__fish_seen_subcommand_from burn' -l json -d 'Output as JSON'
+complete -c secrt -n '__fish_seen_subcommand_from burn' -l silent -d 'Suppress status output'
 
 complete -c secrt -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'
 "#;

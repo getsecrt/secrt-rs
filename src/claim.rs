@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use crate::cli::{parse_flags, print_claim_help, resolve_globals, CliError, Deps};
+use crate::color::{color_func, DIM};
 use crate::envelope::{self, OpenParams};
 use crate::passphrase::{resolve_passphrase, write_error};
 
@@ -12,14 +13,14 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
             return 0;
         }
         Err(CliError::Error(e)) => {
-            write_error(&mut deps.stderr, false, &e);
+            write_error(&mut deps.stderr, false, (deps.is_tty)(), &e);
             return 2;
         }
     };
     resolve_globals(&mut pa, deps);
 
     if pa.args.is_empty() {
-        write_error(&mut deps.stderr, pa.json, "share URL is required");
+        write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), "share URL is required");
         return 2;
     }
 
@@ -32,6 +33,7 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
             write_error(
                 &mut deps.stderr,
                 pa.json,
+                (deps.is_tty)(),
                 &format!("invalid share URL: {}", e),
             );
             return 2;
@@ -66,6 +68,7 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
             write_error(
                 &mut deps.stderr,
                 pa.json,
+                (deps.is_tty)(),
                 &format!("key derivation failed: {}", e),
             );
             return 1;
@@ -78,7 +81,7 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
     let resp = match client.claim(&id, &claim_token) {
         Ok(r) => r,
         Err(e) => {
-            write_error(&mut deps.stderr, pa.json, &format!("claim failed: {}", e));
+            write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &format!("claim failed: {}", e));
             return 1;
         }
     };
@@ -87,7 +90,7 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
     let passphrase = match resolve_passphrase(&pa, deps) {
         Ok(p) => p,
         Err(e) => {
-            write_error(&mut deps.stderr, pa.json, &e);
+            write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &e);
             return 1;
         }
     };
@@ -103,6 +106,7 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
             write_error(
                 &mut deps.stderr,
                 pa.json,
+                (deps.is_tty)(),
                 &format!("decryption failed: {}", e),
             );
             return 1;
@@ -116,6 +120,10 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
         });
         let _ = writeln!(deps.stdout, "{}", serde_json::to_string(&out).unwrap());
     } else {
+        if (deps.is_stdout_tty)() && !pa.silent {
+            let c = color_func(true);
+            let _ = writeln!(deps.stderr, "{}", c(DIM, "Secret:"));
+        }
         let _ = deps.stdout.write_all(&plaintext);
         // Add a trailing newline for clean terminal display, but only when
         // stdout is a TTY and the secret doesn't already end with one.

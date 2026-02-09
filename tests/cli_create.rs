@@ -110,7 +110,7 @@ fn create_tty_prompt() {
     let code = cli::run(&args(&["secrt", "create"]), &mut deps);
     assert_eq!(code, 1, "stderr: {}", stderr.to_string());
     assert!(
-        stderr.to_string().contains("Enter secret"),
+        stderr.to_string().contains("Enter your secret"),
         "stderr should contain prompt: {}",
         stderr.to_string()
     );
@@ -375,11 +375,17 @@ fn create_default_tty_uses_single_line() {
     let code = cli::run(&args(&["secrt", "create"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert!(stdout.to_string().contains("#v1."));
-    // Should show "input hidden" hint
+    // Should show "input is hidden" hint on instruction line
     let err = stderr.to_string();
     assert!(
-        err.contains("input hidden"),
+        err.contains("input is hidden"),
         "single-line prompt should mention hidden input: {}",
+        err
+    );
+    // Should show "Secret:" on the prompt line
+    assert!(
+        err.contains("Secret:"),
+        "single-line prompt should show Secret: prompt: {}",
         err
     );
 }
@@ -490,5 +496,132 @@ fn create_unauthorized_error_shows_api_key_hint() {
         err.contains("API key"),
         "stderr should hint about API key: {}",
         err
+    );
+}
+
+// --- --show / --hidden / --silent tests ---
+
+#[test]
+fn create_show_flag_reads_visible_input() {
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"visible secret\n")
+        .is_tty(true)
+        .mock_create(Ok(mock_create_response()))
+        .build();
+    let code = cli::run(&args(&["secrt", "create", "--show"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert!(stdout.to_string().contains("#v1."));
+    let err = stderr.to_string();
+    assert!(
+        err.contains("input will be shown"),
+        "should indicate visible input: {}",
+        err
+    );
+}
+
+#[test]
+fn create_show_short_flag() {
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"visible secret\n")
+        .is_tty(true)
+        .mock_create(Ok(mock_create_response()))
+        .build();
+    let code = cli::run(&args(&["secrt", "create", "-s"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert!(stdout.to_string().contains("#v1."));
+}
+
+#[test]
+fn create_hidden_overrides_show() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["hidden secret"])
+        .is_tty(true)
+        .mock_create(Ok(mock_create_response()))
+        .build();
+    let code = cli::run(&args(&["secrt", "create", "--show", "--hidden"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let err = stderr.to_string();
+    assert!(
+        err.contains("input is hidden"),
+        "--hidden should override --show: {}",
+        err
+    );
+}
+
+#[test]
+fn create_silent_suppresses_status() {
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"my secret")
+        .mock_create(Ok(mock_create_response()))
+        .build();
+    let code = cli::run(&args(&["secrt", "create", "--silent"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert!(stdout.to_string().contains("#v1."));
+    let err = stderr.to_string();
+    assert!(
+        err.is_empty(),
+        "silent mode should suppress stderr: {}",
+        err
+    );
+}
+
+#[test]
+fn create_silent_tty_suppresses_prompts_and_status() {
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["my secret"])
+        .is_tty(true)
+        .mock_create(Ok(mock_create_response()))
+        .build();
+    let code = cli::run(&args(&["secrt", "create", "--silent"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert!(stdout.to_string().contains("#v1."));
+    let err = stderr.to_string();
+    assert!(
+        !err.contains("Enter your secret"),
+        "silent mode should suppress instruction: {}",
+        err
+    );
+    assert!(
+        !err.contains("Encrypting"),
+        "silent mode should suppress status: {}",
+        err
+    );
+}
+
+#[test]
+fn create_tty_status_indicator_success() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["my secret"])
+        .is_tty(true)
+        .mock_create(Ok(mock_create_response()))
+        .build();
+    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let err = stderr.to_string();
+    // Should contain both the in-progress and success indicators
+    assert!(
+        err.contains("\u{25CB}"),
+        "should show circle indicator: {}",
+        err
+    );
+    assert!(
+        err.contains("Encrypted and uploaded!"),
+        "should show success message: {}",
+        err
+    );
+}
+
+#[test]
+fn create_show_empty_input_errors() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"\n")
+        .is_tty(true)
+        .build();
+    let code = cli::run(&args(&["secrt", "create", "--show"]), &mut deps);
+    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
+    assert!(
+        stderr.to_string().contains("empty"),
+        "empty show input should error: {}",
+        stderr.to_string()
     );
 }

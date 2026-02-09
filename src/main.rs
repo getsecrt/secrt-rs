@@ -1,5 +1,4 @@
 use std::io::{self, Write};
-use std::os::fd::AsRawFd;
 
 use secrt::cli;
 use secrt::client::ApiClient;
@@ -28,15 +27,7 @@ fn main() {
         read_pass: Box::new(|prompt: &str, w: &mut dyn Write| {
             w.write_all(prompt.as_bytes())?;
             w.flush()?;
-            let pass = rpassword::read_password_from_bufread(&mut io::BufReader::new(
-                std::fs::File::open("/dev/tty").unwrap_or_else(|_| {
-                    // Fallback: use stdin fd directly
-                    use std::os::fd::FromRawFd;
-                    unsafe { std::fs::File::from_raw_fd(io::stdin().as_raw_fd()) }
-                }),
-            ))?;
-            let _ = w.write_all(b"\n");
-            Ok(pass)
+            rpassword::read_password()
         }),
     };
 

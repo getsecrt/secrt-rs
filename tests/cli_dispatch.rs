@@ -106,6 +106,79 @@ fn unknown_command() {
 }
 
 #[test]
+fn config_shows_defaults() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("base_url"),
+        "config should show base_url: {}",
+        err
+    );
+    assert!(
+        err.contains("https://secrt.ca"),
+        "config should show default base_url: {}",
+        err
+    );
+    assert!(
+        err.contains("api_key"),
+        "config should show api_key: {}",
+        err
+    );
+    assert!(
+        err.contains("show_input"),
+        "config should show show_input: {}",
+        err
+    );
+}
+
+#[test]
+fn config_shows_env_api_key_masked() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("SECRET_API_KEY", "sk_live_abc123xyz789")
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("sk_live_"),
+        "config should show masked api_key prefix: {}",
+        err
+    );
+    assert!(
+        !err.contains("xyz789"),
+        "config should NOT show full api_key: {}",
+        err
+    );
+    assert!(
+        err.contains("env SECRET_API_KEY"),
+        "config should show source: {}",
+        err
+    );
+}
+
+#[test]
+fn config_shows_env_base_url() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("SECRET_BASE_URL", "https://custom.example.com")
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("https://custom.example.com"),
+        "config should show env base_url: {}",
+        err
+    );
+    assert!(
+        err.contains("env SECRET_BASE_URL"),
+        "config should show source: {}",
+        err
+    );
+}
+
+#[test]
 fn completion_bash() {
     let (mut deps, stdout, _stderr) = TestDepsBuilder::new().build();
     let code = cli::run(&args(&["secrt", "completion", "bash"]), &mut deps);

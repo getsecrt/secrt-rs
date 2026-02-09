@@ -2,6 +2,7 @@ use std::fs;
 use std::io::Write;
 
 use crate::cli::{Deps, ParsedArgs};
+use crate::color::{color_func, DIM, ERROR};
 
 /// Extract a passphrase from flags using the provided Deps.
 /// Returns (passphrase, error). Empty passphrase means none requested.
@@ -54,7 +55,9 @@ pub fn resolve_passphrase(args: &ParsedArgs, deps: &mut Deps) -> Result<String, 
     }
 
     // Prompt
-    let p = (deps.read_pass)("Passphrase: ", &mut deps.stderr)
+    let c = color_func(true);
+    let prompt = format!("{} ", c(DIM, "Passphrase:"));
+    let p = (deps.read_pass)(&prompt, &mut deps.stderr)
         .map_err(|e| format!("read passphrase: {}", e))?;
     if p.is_empty() {
         return Err("passphrase must not be empty".into());
@@ -87,13 +90,16 @@ pub fn resolve_passphrase_for_create(args: &ParsedArgs, deps: &mut Deps) -> Resu
         return resolve_passphrase(args, deps);
     }
 
-    let p1 = (deps.read_pass)("Passphrase: ", &mut deps.stderr)
+    let c = color_func(true);
+    let prompt = format!("{} ", c(DIM, "Passphrase:"));
+    let p1 = (deps.read_pass)(&prompt, &mut deps.stderr)
         .map_err(|e| format!("read passphrase: {}", e))?;
     if p1.is_empty() {
         return Err("passphrase must not be empty".into());
     }
 
-    let p2 = (deps.read_pass)("Confirm passphrase: ", &mut deps.stderr)
+    let confirm_prompt = format!("{} ", c(DIM, "Confirm passphrase:"));
+    let p2 = (deps.read_pass)(&confirm_prompt, &mut deps.stderr)
         .map_err(|e| format!("read passphrase confirmation: {}", e))?;
     if p1 != p2 {
         return Err("passphrases do not match".into());
@@ -103,9 +109,13 @@ pub fn resolve_passphrase_for_create(args: &ParsedArgs, deps: &mut Deps) -> Resu
 }
 
 /// Write an error message to the writer, in JSON or plain format.
-pub fn write_error(w: &mut dyn Write, json_mode: bool, msg: &str) {
+/// When `is_tty` is true, the "error:" prefix is colored red.
+pub fn write_error(w: &mut dyn Write, json_mode: bool, is_tty: bool, msg: &str) {
     if json_mode {
         let _ = writeln!(w, "{{\"error\":{}}}", serde_json::to_string(msg).unwrap());
+    } else if is_tty {
+        let c = color_func(true);
+        let _ = writeln!(w, "{} {}", c(ERROR, "error:"), msg);
     } else {
         let _ = writeln!(w, "error: {}", msg);
     }
@@ -341,14 +351,23 @@ mod tests {
     #[test]
     fn plain_format() {
         let mut buf = Vec::new();
-        write_error(&mut buf, false, "something broke");
+        write_error(&mut buf, false, false, "something broke");
         assert_eq!(String::from_utf8(buf).unwrap(), "error: something broke\n");
+    }
+
+    #[test]
+    fn plain_format_tty() {
+        let mut buf = Vec::new();
+        write_error(&mut buf, false, true, "something broke");
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("\x1b[31merror:\x1b[0m"));
+        assert!(output.contains("something broke"));
     }
 
     #[test]
     fn json_format() {
         let mut buf = Vec::new();
-        write_error(&mut buf, true, "something broke");
+        write_error(&mut buf, true, false, "something broke");
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("\"error\""));
         assert!(output.contains("something broke"));

@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use crate::cli::{parse_flags, print_burn_help, resolve_globals, CliError, Deps};
+use crate::color::{color_func, SUCCESS};
 use crate::envelope;
 use crate::passphrase::write_error;
 
@@ -12,7 +13,7 @@ pub fn run_burn(args: &[String], deps: &mut Deps) -> i32 {
             return 0;
         }
         Err(CliError::Error(e)) => {
-            write_error(&mut deps.stderr, false, &e);
+            write_error(&mut deps.stderr, false, (deps.is_tty)(), &e);
             return 2;
         }
     };
@@ -22,13 +23,14 @@ pub fn run_burn(args: &[String], deps: &mut Deps) -> i32 {
         write_error(
             &mut deps.stderr,
             pa.json,
+            (deps.is_tty)(),
             "secret ID or share URL is required",
         );
         return 2;
     }
 
     if pa.api_key.is_empty() {
-        write_error(&mut deps.stderr, pa.json, "--api-key is required for burn");
+        write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), "--api-key is required for burn");
         return 2;
     }
 
@@ -55,7 +57,7 @@ pub fn run_burn(args: &[String], deps: &mut Deps) -> i32 {
                 }
             }
             Err(e) => {
-                write_error(&mut deps.stderr, pa.json, &format!("invalid URL: {}", e));
+                write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &format!("invalid URL: {}", e));
                 return 2;
             }
         }
@@ -64,7 +66,7 @@ pub fn run_burn(args: &[String], deps: &mut Deps) -> i32 {
     let client = (deps.make_api)(&base_url, &pa.api_key);
 
     if let Err(e) = client.burn(&secret_id) {
-        write_error(&mut deps.stderr, pa.json, &format!("burn failed: {}", e));
+        write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &format!("burn failed: {}", e));
         return 1;
     }
 
@@ -74,7 +76,10 @@ pub fn run_burn(args: &[String], deps: &mut Deps) -> i32 {
             "{}",
             serde_json::to_string(&serde_json::json!({"ok": true})).unwrap()
         );
-    } else {
+    } else if (deps.is_tty)() && !pa.silent {
+        let c = color_func(true);
+        let _ = writeln!(deps.stderr, "{} Secret burned.", c(SUCCESS, "\u{2713}"));
+    } else if !pa.silent {
         let _ = writeln!(deps.stderr, "Secret burned.");
     }
 

@@ -10,6 +10,7 @@ pub struct Config {
     pub api_key: Option<String>,
     pub base_url: Option<String>,
     pub passphrase: Option<String>,
+    pub show_input: Option<bool>,
 }
 
 /// Returns the config file path: $XDG_CONFIG_HOME/secrt/config.toml
@@ -88,6 +89,22 @@ fn load_config_from_path(path: &PathBuf, stderr: &mut dyn Write) -> Config {
             );
             Config::default()
         }
+    }
+}
+
+/// Mask a secret value for display. Shows a prefix then dots.
+/// For API keys (typically prefixed like "sk_abc123..."), show first 8 chars.
+/// For passphrases, show only dots.
+pub fn mask_secret(value: &str, is_api_key: bool) -> String {
+    if value.is_empty() {
+        return String::new();
+    }
+    if is_api_key {
+        let visible = value.len().min(8);
+        let dots = "\u{2022}".repeat(8);
+        format!("{}{}", &value[..visible], dots)
+    } else {
+        "\u{2022}".repeat(8)
     }
 }
 
@@ -200,5 +217,33 @@ mod tests {
         assert_eq!(config.base_url.as_deref(), Some("https://ok.com"));
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mask_api_key_shows_prefix() {
+        let masked = mask_secret("sk_live_abc123xyz789", true);
+        assert!(masked.starts_with("sk_live_"));
+        assert!(masked.contains('\u{2022}'));
+        assert!(!masked.contains("xyz789"));
+    }
+
+    #[test]
+    fn mask_api_key_short() {
+        let masked = mask_secret("sk_ab", true);
+        assert!(masked.starts_with("sk_ab"));
+        assert!(masked.contains('\u{2022}'));
+    }
+
+    #[test]
+    fn mask_passphrase_all_dots() {
+        let masked = mask_secret("hunter2", false);
+        assert!(!masked.contains("hunter"));
+        assert!(masked.contains('\u{2022}'));
+    }
+
+    #[test]
+    fn mask_empty() {
+        assert_eq!(mask_secret("", true), "");
+        assert_eq!(mask_secret("", false), "");
     }
 }

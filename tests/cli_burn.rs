@@ -179,3 +179,20 @@ fn burn_api_error() {
         stderr.to_string()
     );
 }
+
+#[test]
+fn burn_silent_suppresses_message() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .mock_burn(Ok(()))
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "burn", "test-id-123", "--api-key", "sk_test", "--silent"]),
+        &mut deps,
+    );
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert!(
+        !stderr.to_string().contains("Secret burned"),
+        "silent burn should suppress message: {}",
+        stderr.to_string()
+    );
+}

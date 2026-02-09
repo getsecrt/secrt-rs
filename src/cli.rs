@@ -3,7 +3,7 @@ use std::io::{self, Read, Write};
 use crate::burn::run_burn;
 use crate::claim::run_claim;
 use crate::client::SecretApi;
-use crate::color::color_func;
+use crate::color::{color_func, CMD, OPT, ARG, HEADING, DIM};
 use crate::completion::{BASH_COMPLETION, FISH_COMPLETION, ZSH_COMPLETION};
 use crate::create::run_create;
 
@@ -46,6 +46,13 @@ pub struct ParsedArgs {
     pub multi_line: bool,
     pub trim: bool,
 
+    // Input visibility
+    pub show: bool,
+    pub hidden: bool,
+
+    // Global
+    pub silent: bool,
+
     // Passphrase
     pub passphrase_prompt: bool,
     pub passphrase_env: String,
@@ -53,6 +60,7 @@ pub struct ParsedArgs {
 
     // Populated from config file (not from CLI flags)
     pub passphrase_default: String,
+    pub show_default: bool,
 }
 
 #[derive(Debug)]
@@ -90,6 +98,7 @@ pub fn run(args: &[String], deps: &mut Deps) -> i32 {
         }
         "help" => run_help(remaining, deps),
         "completion" => run_completion(remaining, deps),
+        "config" => run_config(deps),
         "create" => run_create(remaining, deps),
         "claim" => run_claim(remaining, deps),
         "burn" => run_burn(remaining, deps),
@@ -203,6 +212,9 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
             }
             "--multi-line" | "-m" => pa.multi_line = true,
             "--trim" => pa.trim = true,
+            "--show" | "-s" => pa.show = true,
+            "--hidden" => pa.hidden = true,
+            "--silent" => pa.silent = true,
             "--passphrase-prompt" => pa.passphrase_prompt = true,
             "--passphrase-env" => {
                 i += 1;
@@ -260,6 +272,119 @@ pub fn resolve_globals_with_config(pa: &mut ParsedArgs, deps: &Deps, config: &cr
             pa.passphrase_default = pass.clone();
         }
     }
+    if let Some(show) = config.show_input {
+        pa.show_default = show;
+    }
+}
+
+// --- Config display ---
+
+fn run_config(deps: &mut Deps) -> i32 {
+    let c = color_func((deps.is_stdout_tty)());
+    let config = crate::config::load_config(&mut deps.stderr);
+
+    // Config file path
+    let config_path = crate::config::config_path()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "(unknown)".into());
+    let config_exists = crate::config::config_path()
+        .map(|p| p.exists())
+        .unwrap_or(false);
+
+    let _ = writeln!(
+        deps.stderr,
+        "{}\n  {} {}",
+        c(HEADING, "CONFIG FILE"),
+        c(DIM, &config_path),
+        if config_exists { "" } else { "(not found)" },
+    );
+
+    let _ = writeln!(deps.stderr);
+    let _ = writeln!(deps.stderr, "{}", c(HEADING, "EFFECTIVE SETTINGS"));
+
+    // base_url: flag/env/config/default
+    let (base_url_val, base_url_src) = if let Some(env) = (deps.getenv)("SECRET_BASE_URL") {
+        (env, "env SECRET_BASE_URL")
+    } else if let Some(ref url) = config.base_url {
+        (url.clone(), "config file")
+    } else {
+        (DEFAULT_BASE_URL.into(), "default")
+    };
+    let _ = writeln!(
+        deps.stderr,
+        "  {}: {} {}",
+        c(OPT, "base_url"),
+        base_url_val,
+        c(DIM, &format!("({})", base_url_src)),
+    );
+
+    // api_key: env/keychain/config/none
+    let (api_key_display, api_key_src) = if let Some(env) = (deps.getenv)("SECRET_API_KEY") {
+        (crate::config::mask_secret(&env, true), "env SECRET_API_KEY")
+    } else if let Some(val) = crate::keychain::get_secret("api_key") {
+        (crate::config::mask_secret(&val, true), "keychain")
+    } else if let Some(ref key) = config.api_key {
+        (crate::config::mask_secret(key, true), "config file")
+    } else {
+        ("(not set)".into(), "")
+    };
+    if api_key_src.is_empty() {
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {}",
+            c(OPT, "api_key"),
+            c(DIM, &api_key_display),
+        );
+    } else {
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {} {}",
+            c(OPT, "api_key"),
+            api_key_display,
+            c(DIM, &format!("({})", api_key_src)),
+        );
+    }
+
+    // passphrase: keychain/config/none
+    let (pass_display, pass_src) = if let Some(val) = crate::keychain::get_secret("passphrase") {
+        (crate::config::mask_secret(&val, false), "keychain")
+    } else if let Some(ref pass) = config.passphrase {
+        (crate::config::mask_secret(pass, false), "config file")
+    } else {
+        ("(not set)".into(), "")
+    };
+    if pass_src.is_empty() {
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {}",
+            c(OPT, "passphrase"),
+            c(DIM, &pass_display),
+        );
+    } else {
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {} {}",
+            c(OPT, "passphrase"),
+            pass_display,
+            c(DIM, &format!("({})", pass_src)),
+        );
+    }
+
+    // show_input: config/default
+    let (show_val, show_src) = if let Some(show) = config.show_input {
+        (show.to_string(), "config file")
+    } else {
+        ("false".into(), "default")
+    };
+    let _ = writeln!(
+        deps.stderr,
+        "  {}: {} {}",
+        c(OPT, "show_input"),
+        show_val,
+        c(DIM, &format!("({})", show_src)),
+    );
+
+    0
 }
 
 // --- Help text ---
@@ -268,14 +393,12 @@ fn print_usage(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
     let _ = write!(
         deps.stderr,
-        "{} — one-time secret sharing\n\n  {}            {}\n  {} {}       {}\n\nRun '{}' for full usage.\n",
-        c("36", "secrt"),
-        c("36", "secrt create"),
-        c("2", "share a secret (interactive)"),
-        c("36", "secrt claim"),
-        c("33", "<url>"),
-        c("2", "retrieve a secret"),
-        c("36", "secrt help")
+        "{} — one-time secret sharing\n\n  {}            share a secret (interactive)\n  {} {}       retrieve a secret\n\nRun '{}' for full usage.\n",
+        c(CMD, "secrt"),
+        c(CMD, "secrt create"),
+        c(CMD, "secrt claim"),
+        c(OPT, "<url>"),
+        c(CMD, "secrt help")
     );
 }
 
@@ -289,6 +412,7 @@ pub fn print_help(deps: &mut Deps) {
   {}       Encrypt and upload a secret\n\
   {}        Retrieve and decrypt a secret\n\
   {}         Destroy a secret (requires API key)\n\
+  {}       Show effective configuration\n\
   {}      Show version\n\
   {}         Show this help\n\
   {}   Output shell completion script\n\n\
@@ -296,6 +420,7 @@ pub fn print_help(deps: &mut Deps) {
   {} {}     Server URL (default: https://secrt.ca)\n\
   {} {}      API key for authenticated access\n\
   {}               Output as JSON\n\
+  {}              Suppress status output\n\
   {}           Show help\n\
   {}        Show version\n\n\
 {}\n\
@@ -303,34 +428,36 @@ pub fn print_help(deps: &mut Deps) {
   {} https://secrt.ca/s/abc#v1.key\n\n\
 {}\n\
   Settings are loaded from {}.\n\
-  Supported keys: api_key, base_url, passphrase.\n\
+  Supported keys: api_key, base_url, passphrase, show_input.\n\
   Precedence: CLI flag > env var > config file > default.\n",
-        c("36", "secrt"),
-        c("1", "USAGE"),
-        c("36", "secrt"),
-        c("36", "<command>"),
-        c("2", "[options]"),
-        c("1", "COMMANDS"),
-        c("36", "create"),
-        c("36", "claim"),
-        c("36", "burn"),
-        c("36", "version"),
-        c("36", "help"),
-        c("36", "completion"),
-        c("1", "GLOBAL OPTIONS"),
-        c("33", "--base-url"),
-        c("2", "<url>"),
-        c("33", "--api-key"),
-        c("2", "<key>"),
-        c("33", "--json"),
-        c("33", "-h, --help"),
-        c("33", "-v, --version"),
-        c("1", "EXAMPLES"),
-        c("36", "secrt"),
-        c("36", "create"),
-        c("36", "secrt claim"),
-        c("1", "CONFIG"),
-        c("2", "~/.config/secrt/config.toml"),
+        c(CMD, "secrt"),
+        c(HEADING, "USAGE"),
+        c(CMD, "secrt"),
+        c(CMD, "<command>"),
+        c(ARG, "[options]"),
+        c(HEADING, "COMMANDS"),
+        c(CMD, "create"),
+        c(CMD, "claim"),
+        c(CMD, "burn"),
+        c(CMD, "config"),
+        c(CMD, "version"),
+        c(CMD, "help"),
+        c(CMD, "completion"),
+        c(HEADING, "GLOBAL OPTIONS"),
+        c(OPT, "--base-url"),
+        c(ARG, "<url>"),
+        c(OPT, "--api-key"),
+        c(ARG, "<key>"),
+        c(OPT, "--json"),
+        c(OPT, "--silent"),
+        c(OPT, "-h, --help"),
+        c(OPT, "-v, --version"),
+        c(HEADING, "EXAMPLES"),
+        c(CMD, "secrt"),
+        c(CMD, "create"),
+        c(CMD, "secrt claim"),
+        c(HEADING, "CONFIG"),
+        c(DIM, "~/.config/secrt/config.toml"),
     );
 }
 
@@ -346,56 +473,63 @@ pub fn print_create_help(deps: &mut Deps) {
   {} {}             Read secret from file\n\
   {}          Multi-line input (read until Ctrl+D)\n\
   {}                    Trim leading/trailing whitespace\n\
+  {}         Show input as you type\n\
+  {}                  Hide input (default, overrides --show)\n\
   {}       Prompt for passphrase\n\
   {} {}   Read passphrase from env var\n\
   {} {}  Read passphrase from file\n\
   {} {}          Server URL\n\
   {} {}           API key\n\
   {}                    Output as JSON\n\
+  {}              Suppress status output\n\
   {}                Show help\n\n\
 {}\n\
   Interactive: single-line hidden input (like a password).\n\
-  Use {} for multi-line input, {} or {} for alternatives.\n\n\
+  Use {} for multi-line input, {} or {} for alternatives.\n\
+  Set show_input = true in config to show input by default.\n\n\
 {}\n\
   echo \"secret\" | {} {}\n\
   {} {} {} \"my secret\" {} 5m\n",
-        c("36", "secrt"),
-        c("36", "create"),
-        c("1", "USAGE"),
-        c("36", "secrt"),
-        c("36", "create"),
-        c("2", "[options]"),
-        c("1", "OPTIONS"),
-        c("33", "--ttl"),
-        c("2", "<ttl>"),
-        c("33", "--text"),
-        c("2", "<value>"),
-        c("33", "--file"),
-        c("2", "<path>"),
-        c("33", "-m, --multi-line"),
-        c("33", "--trim"),
-        c("33", "--passphrase-prompt"),
-        c("33", "--passphrase-env"),
-        c("2", "<name>"),
-        c("33", "--passphrase-file"),
-        c("2", "<path>"),
-        c("33", "--base-url"),
-        c("2", "<url>"),
-        c("33", "--api-key"),
-        c("2", "<key>"),
-        c("33", "--json"),
-        c("33", "-h, --help"),
-        c("1", "INPUT"),
-        c("33", "-m"),
-        c("33", "--text"),
-        c("33", "--file"),
-        c("1", "EXAMPLES"),
-        c("36", "secrt"),
-        c("36", "create"),
-        c("36", "secrt"),
-        c("36", "create"),
-        c("33", "--text"),
-        c("33", "--ttl"),
+        c(CMD, "secrt"),
+        c(CMD, "create"),
+        c(HEADING, "USAGE"),
+        c(CMD, "secrt"),
+        c(CMD, "create"),
+        c(ARG, "[options]"),
+        c(HEADING, "OPTIONS"),
+        c(OPT, "--ttl"),
+        c(ARG, "<ttl>"),
+        c(OPT, "--text"),
+        c(ARG, "<value>"),
+        c(OPT, "--file"),
+        c(ARG, "<path>"),
+        c(OPT, "-m, --multi-line"),
+        c(OPT, "--trim"),
+        c(OPT, "-s, --show"),
+        c(OPT, "--hidden"),
+        c(OPT, "--passphrase-prompt"),
+        c(OPT, "--passphrase-env"),
+        c(ARG, "<name>"),
+        c(OPT, "--passphrase-file"),
+        c(ARG, "<path>"),
+        c(OPT, "--base-url"),
+        c(ARG, "<url>"),
+        c(OPT, "--api-key"),
+        c(ARG, "<key>"),
+        c(OPT, "--json"),
+        c(OPT, "--silent"),
+        c(OPT, "-h, --help"),
+        c(HEADING, "INPUT"),
+        c(OPT, "-m"),
+        c(OPT, "--text"),
+        c(OPT, "--file"),
+        c(HEADING, "EXAMPLES"),
+        c(CMD, "secrt"),
+        c(CMD, "create"),
+        c(CMD, "secrt"),
+        c(CMD, "create"),
+        c(OPT, "--text"),
+        c(OPT, "--ttl"),
     );
 }
 
@@ -411,29 +545,31 @@ pub fn print_claim_help(deps: &mut Deps) {
   {} {}  Read passphrase from file\n\
   {} {}          Server URL\n\
   {}                    Output as JSON\n\
+  {}              Suppress status output\n\
   {}                Show help\n\n\
 {}\n\
   {} {} https://secrt.ca/s/abc#v1.key\n",
-        c("36", "secrt"),
-        c("36", "claim"),
-        c("1", "USAGE"),
-        c("36", "secrt"),
-        c("36", "claim"),
-        c("2", "<share-url>"),
-        c("2", "[options]"),
-        c("1", "OPTIONS"),
-        c("33", "--passphrase-prompt"),
-        c("33", "--passphrase-env"),
-        c("2", "<name>"),
-        c("33", "--passphrase-file"),
-        c("2", "<path>"),
-        c("33", "--base-url"),
-        c("2", "<url>"),
-        c("33", "--json"),
-        c("33", "-h, --help"),
-        c("1", "EXAMPLES"),
-        c("36", "secrt"),
-        c("36", "claim"),
+        c(CMD, "secrt"),
+        c(CMD, "claim"),
+        c(HEADING, "USAGE"),
+        c(CMD, "secrt"),
+        c(CMD, "claim"),
+        c(ARG, "<share-url>"),
+        c(ARG, "[options]"),
+        c(HEADING, "OPTIONS"),
+        c(OPT, "--passphrase-prompt"),
+        c(OPT, "--passphrase-env"),
+        c(ARG, "<name>"),
+        c(OPT, "--passphrase-file"),
+        c(ARG, "<path>"),
+        c(OPT, "--base-url"),
+        c(ARG, "<url>"),
+        c(OPT, "--json"),
+        c(OPT, "--silent"),
+        c(OPT, "-h, --help"),
+        c(HEADING, "EXAMPLES"),
+        c(CMD, "secrt"),
+        c(CMD, "claim"),
     );
 }
 
@@ -447,27 +583,29 @@ pub fn print_burn_help(deps: &mut Deps) {
   {} {}           API key (required)\n\
   {} {}          Server URL\n\
   {}                    Output as JSON\n\
+  {}              Suppress status output\n\
   {}                Show help\n\n\
 {}\n\
   {} {} test-id {} sk_prefix.secret\n",
-        c("36", "secrt"),
-        c("36", "burn"),
-        c("1", "USAGE"),
-        c("36", "secrt"),
-        c("36", "burn"),
-        c("2", "<id-or-url>"),
-        c("2", "[options]"),
-        c("1", "OPTIONS"),
-        c("33", "--api-key"),
-        c("2", "<key>"),
-        c("33", "--base-url"),
-        c("2", "<url>"),
-        c("33", "--json"),
-        c("33", "-h, --help"),
-        c("1", "EXAMPLES"),
-        c("36", "secrt"),
-        c("36", "burn"),
-        c("33", "--api-key"),
+        c(CMD, "secrt"),
+        c(CMD, "burn"),
+        c(HEADING, "USAGE"),
+        c(CMD, "secrt"),
+        c(CMD, "burn"),
+        c(ARG, "<id-or-url>"),
+        c(ARG, "[options]"),
+        c(HEADING, "OPTIONS"),
+        c(OPT, "--api-key"),
+        c(ARG, "<key>"),
+        c(OPT, "--base-url"),
+        c(ARG, "<url>"),
+        c(OPT, "--json"),
+        c(OPT, "--silent"),
+        c(OPT, "-h, --help"),
+        c(HEADING, "EXAMPLES"),
+        c(CMD, "secrt"),
+        c(CMD, "burn"),
+        c(OPT, "--api-key"),
     );
 }
 
@@ -543,6 +681,30 @@ mod tests {
     fn flags_trim() {
         let pa = parse_flags(&s(&["--trim"])).unwrap();
         assert!(pa.trim);
+    }
+
+    #[test]
+    fn flags_show() {
+        let pa = parse_flags(&s(&["--show"])).unwrap();
+        assert!(pa.show);
+    }
+
+    #[test]
+    fn flags_show_short() {
+        let pa = parse_flags(&s(&["-s"])).unwrap();
+        assert!(pa.show);
+    }
+
+    #[test]
+    fn flags_hidden() {
+        let pa = parse_flags(&s(&["--hidden"])).unwrap();
+        assert!(pa.hidden);
+    }
+
+    #[test]
+    fn flags_silent() {
+        let pa = parse_flags(&s(&["--silent"])).unwrap();
+        assert!(pa.silent);
     }
 
     #[test]
@@ -768,5 +930,17 @@ mod tests {
         pa.base_url = "https://flag.example.com".into();
         resolve_globals_with_config(&mut pa, &deps, &config);
         assert_eq!(pa.base_url, "https://flag.example.com");
+    }
+
+    #[test]
+    fn globals_config_show_input() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config {
+            show_input: Some(true),
+            ..Default::default()
+        };
+        let mut pa = ParsedArgs::default();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert!(pa.show_default);
     }
 }
