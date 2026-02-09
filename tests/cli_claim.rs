@@ -186,6 +186,10 @@ fn claim_success_json() {
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
     assert_eq!(
+        json["plaintext"].as_str().unwrap(),
+        "json claim test"
+    );
+    assert_eq!(
         json["expires_at"].as_str().unwrap(),
         "2026-02-09T12:00:00Z"
     );

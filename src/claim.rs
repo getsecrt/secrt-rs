@@ -203,6 +203,7 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
     // Output
     if pa.json {
         let out = serde_json::json!({
+            "plaintext": String::from_utf8_lossy(&plaintext),
             "expires_at": resp.expires_at,
         });
         let _ = writeln!(deps.stdout, "{}", serde_json::to_string(&out).unwrap());
