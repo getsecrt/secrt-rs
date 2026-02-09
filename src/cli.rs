@@ -473,26 +473,26 @@ pub fn print_help(deps: &mut Deps) {
         "{} — one-time secret sharing\n\n\
 {}\n  {} {} {}\n\n\
 {}\n\
-  {}       Encrypt and upload a secret\n\
-  {}        Retrieve and decrypt a secret\n\
-  {}         Destroy a secret (requires API key)\n\
-  {}       Show config / init / path\n\
-  {}      Show version\n\
-  {}         Show this help\n\
-  {}   Output shell completion script\n\n\
+  {}            Encrypt and upload a secret\n\
+  {}             Retrieve and decrypt a secret\n\
+  {}              Destroy a secret (requires API key)\n\
+  {}            Show config / init / path\n\
+  {}           Show version\n\
+  {}              Show this help\n\
+  {}        Output shell completion script\n\n\
 {}\n\
-  {} {}     Server URL (default: https://secrt.ca)\n\
-  {} {}      API key for authenticated access\n\
-  {}               Output as JSON\n\
-  {}              Suppress status output\n\
-  {}           Show help\n\
-  {}        Show version\n\n\
+  {} {}          Server URL (default: https://secrt.ca)\n\
+  {} {}           API key for authenticated access\n\
+  {}                    Output as JSON\n\
+  {}                  Suppress status output\n\
+  {}                Show help\n\
+  {}             Show version\n\n\
 {}\n\
   echo \"pw123\" | {} {}\n\
   {} https://secrt.ca/s/abc#v1.key\n\n\
 {}\n\
-  {} {}  Create template config file\n\
-  {}          Print config file path\n\
+  {} {}     Create template config file\n\
+  {}               Print config file path\n\
   Settings are loaded from {}.\n\
   Supported keys: api_key, base_url, passphrase, show_input.\n\
   Precedence: CLI flag > env var > config file > default.\n",
@@ -537,21 +537,21 @@ pub fn print_create_help(deps: &mut Deps) {
         "{} {} — Encrypt and upload a secret\n\n\
 {}\n  {} {} {}\n\n\
 {}\n\
-  {} {}               TTL for the secret (e.g., 5m, 2h, 1d)\n\
-  {} {}            Secret text (visible in shell history)\n\
-  {} {}             Read secret from file\n\
-  {}          Multi-line input (read until Ctrl+D)\n\
-  {}                    Trim leading/trailing whitespace\n\
-  {}         Show input as you type\n\
-  {}                  Hide input (default, overrides --show)\n\
-  {}  Prompt for passphrase\n\
-  {} {}   Read passphrase from env var\n\
-  {} {}  Read passphrase from file\n\
-  {} {}          Server URL\n\
-  {} {}           API key\n\
-  {}                    Output as JSON\n\
-  {}              Suppress status output\n\
-  {}                Show help\n\n\
+  {} {}                   TTL for the secret (e.g., 5m, 2h, 1d)\n\
+  {} {}                Secret text (visible in shell history)\n\
+  {} {}                 Read secret from file\n\
+  {}              Multi-line input (read until Ctrl+D)\n\
+  {}                        Trim leading/trailing whitespace\n\
+  {}                    Show input as you type\n\
+  {}                      Hide input (default, overrides --show)\n\
+  {}       Prompt for passphrase\n\
+  {} {}       Read passphrase from env var\n\
+  {} {}      Read passphrase from file\n\
+  {} {}              Server URL\n\
+  {} {}               API key\n\
+  {}                        Output as JSON\n\
+  {}                      Suppress status output\n\
+  {}                    Show help\n\n\
 {}\n\
   Interactive: single-line hidden input (like a password).\n\
   Use {} for multi-line input, {} or {} for alternatives.\n\
@@ -609,13 +609,13 @@ pub fn print_claim_help(deps: &mut Deps) {
         "{} {} — Retrieve and decrypt a secret\n\n\
 {}\n  {} {} {} {}\n\n\
 {}\n\
-  {}  Prompt for passphrase\n\
-  {} {}   Read passphrase from env var\n\
-  {} {}  Read passphrase from file\n\
-  {} {}          Server URL\n\
-  {}                    Output as JSON\n\
-  {}              Suppress status output\n\
-  {}                Show help\n\n\
+  {}       Prompt for passphrase\n\
+  {} {}       Read passphrase from env var\n\
+  {} {}      Read passphrase from file\n\
+  {} {}              Server URL\n\
+  {}                        Output as JSON\n\
+  {}                      Suppress status output\n\
+  {}                    Show help\n\n\
 {}\n\
   {} {} https://secrt.ca/s/abc#v1.key\n",
         c(CMD, "secrt"),
@@ -649,11 +649,11 @@ pub fn print_burn_help(deps: &mut Deps) {
         "{} {} — Destroy a secret (requires API key)\n\n\
 {}\n  {} {} {} {}\n\n\
 {}\n\
-  {} {}           API key (required)\n\
-  {} {}          Server URL\n\
-  {}                    Output as JSON\n\
-  {}              Suppress status output\n\
-  {}                Show help\n\n\
+  {} {}          API key (required)\n\
+  {} {}         Server URL\n\
+  {}                   Output as JSON\n\
+  {}                 Suppress status output\n\
+  {}               Show help\n\n\
 {}\n\
   {} {} test-id {} sk_prefix.secret\n",
         c(CMD, "secrt"),
