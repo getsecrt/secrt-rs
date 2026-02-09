@@ -605,8 +605,13 @@ fn create_tty_status_indicator_success() {
         err
     );
     assert!(
-        err.contains("Encrypted and uploaded!"),
+        err.contains("Encrypted and uploaded."),
         "should show success message: {}",
+        err
+    );
+    assert!(
+        err.contains("Expires"),
+        "should show expiry info: {}",
         err
     );
 }

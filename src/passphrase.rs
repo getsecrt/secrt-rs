@@ -2,7 +2,7 @@ use std::fs;
 use std::io::Write;
 
 use crate::cli::{Deps, ParsedArgs};
-use crate::color::{color_func, DIM, ERROR};
+use crate::color::{color_func, ERROR, LABEL};
 
 /// Extract a passphrase from flags using the provided Deps.
 /// Returns (passphrase, error). Empty passphrase means none requested.
@@ -56,7 +56,7 @@ pub fn resolve_passphrase(args: &ParsedArgs, deps: &mut Deps) -> Result<String, 
 
     // Prompt
     let c = color_func(true);
-    let prompt = format!("{} ", c(DIM, "Passphrase:"));
+    let prompt = format!("{} ", c(LABEL, "Passphrase:"));
     let p = (deps.read_pass)(&prompt, &mut deps.stderr)
         .map_err(|e| format!("read passphrase: {}", e))?;
     if p.is_empty() {
@@ -91,14 +91,14 @@ pub fn resolve_passphrase_for_create(args: &ParsedArgs, deps: &mut Deps) -> Resu
     }
 
     let c = color_func(true);
-    let prompt = format!("{} ", c(DIM, "Passphrase:"));
+    let prompt = format!("{} ", c(LABEL, "Passphrase:"));
     let p1 = (deps.read_pass)(&prompt, &mut deps.stderr)
         .map_err(|e| format!("read passphrase: {}", e))?;
     if p1.is_empty() {
         return Err("passphrase must not be empty".into());
     }
 
-    let confirm_prompt = format!("{} ", c(DIM, "Confirm passphrase:"));
+    let confirm_prompt = format!("{} ", c(LABEL, "Confirm passphrase:"));
     let p2 = (deps.read_pass)(&confirm_prompt, &mut deps.stderr)
         .map_err(|e| format!("read passphrase confirmation: {}", e))?;
     if p1 != p2 {

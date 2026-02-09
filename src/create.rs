@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 
 use crate::cli::{parse_flags, print_create_help, resolve_globals, CliError, Deps, ParsedArgs};
 use crate::client::CreateRequest;
-use crate::color::{color_func, SUCCESS, URL, DIM, WARN};
+use crate::color::{color_func, SUCCESS, URL, DIM, LABEL, WARN};
 use crate::envelope::{self, format_share_link, SealParams};
 use crate::passphrase::{resolve_passphrase_for_create, write_error};
 
@@ -102,7 +102,14 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
         Ok(r) => {
             if is_tty && !pa.silent {
                 let c = color_func(true);
-                let _ = write!(deps.stderr, "\r{} Encrypted and uploaded!     \n", c(SUCCESS, "\u{2713}"));
+                // Format expiry: "Expires 2026-02-10 09:30"
+                let expires_fmt = format_expires(&r.expires_at);
+                let _ = write!(
+                    deps.stderr,
+                    "\r{} Encrypted and uploaded.  {}\n",
+                    c(SUCCESS, "\u{2713}"),
+                    c(DIM, &expires_fmt)
+                );
             }
             r
         }
@@ -134,6 +141,19 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
     }
 
     0
+}
+
+/// Format ISO 8601 timestamp to "Expires YYYY-MM-DD HH:MM"
+fn format_expires(iso: &str) -> String {
+    // Input: "2026-02-10T09:30:00Z" or similar
+    // Output: "Expires 2026-02-10 09:30"
+    if iso.len() >= 16 {
+        let date = &iso[0..10];  // YYYY-MM-DD
+        let time = &iso[11..16]; // HH:MM
+        format!("Expires {} {}", date, time)
+    } else {
+        format!("Expires {}", iso)
+    }
 }
 
 fn read_plaintext(pa: &ParsedArgs, deps: &mut Deps) -> Result<Vec<u8>, String> {
@@ -203,7 +223,7 @@ fn read_plaintext(pa: &ParsedArgs, deps: &mut Deps) -> Result<Vec<u8>, String> {
             let prompt = if pa.silent {
                 String::new()
             } else {
-                format!("{} ", c(DIM, "Secret:"))
+                format!("{} ", c(LABEL, "Secret:"))
             };
             let secret = (deps.read_pass)(&prompt, &mut deps.stderr)
                 .map_err(|e| format!("read secret: {}", e))?;

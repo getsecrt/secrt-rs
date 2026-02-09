@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use crate::cli::{parse_flags, print_claim_help, resolve_globals, CliError, Deps};
-use crate::color::{color_func, DIM, WARN};
+use crate::color::{color_func, DIM, LABEL, WARN};
 use crate::envelope::{self, EnvelopeError, OpenParams};
 use crate::passphrase::{resolve_passphrase, write_error};
 
@@ -124,7 +124,7 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
         }
         // Prompt for passphrase
         let c = color_func(true);
-        let prompt = format!("{} ", c(DIM, "Passphrase:"));
+        let prompt = format!("{} ", c(LABEL, "Passphrase:"));
         match (deps.read_pass)(&prompt, &mut deps.stderr) {
             Ok(p) if !p.is_empty() => {
                 passphrase = p;
@@ -165,7 +165,7 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
                 let c = color_func(is_tty);
                 let _ = writeln!(deps.stderr, "{}", c(WARN, "Wrong passphrase, try again."));
                 let prompt_c = color_func(true);
-                let prompt = format!("{} ", prompt_c(DIM, "Passphrase:"));
+                let prompt = format!("{} ", prompt_c(LABEL, "Passphrase:"));
                 match (deps.read_pass)(&prompt, &mut deps.stderr) {
                     Ok(p) if !p.is_empty() => passphrase = p,
                     Ok(_) => {
@@ -210,7 +210,7 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
     } else {
         if (deps.is_stdout_tty)() && !pa.silent {
             let c = color_func(true);
-            let _ = writeln!(deps.stderr, "{}", c(DIM, "Secret:"));
+            let _ = writeln!(deps.stderr, "{}", c(LABEL, "Secret:"));
         }
         let _ = deps.stdout.write_all(&plaintext);
         // Add a trailing newline for clean terminal display, but only when
