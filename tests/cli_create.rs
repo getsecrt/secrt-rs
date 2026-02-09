@@ -682,3 +682,46 @@ fn create_success_tty_stdout_shows_link() {
     let out = stdout.to_string();
     assert!(out.contains("#v1."), "should show share link: {}", out);
 }
+
+#[test]
+fn create_tty_status_shows_with_passphrase() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["my secret"])
+        .is_tty(true)
+        .env("MY_PASS", "testpass")
+        .mock_create(Ok(mock_create_response()))
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "create", "--passphrase-env", "MY_PASS"]),
+        &mut deps,
+    );
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let err = stderr.to_string();
+    assert!(
+        err.contains("Encrypted and uploaded with passphrase."),
+        "should show 'with passphrase' when passphrase is used: {}",
+        err
+    );
+}
+
+#[test]
+fn create_tty_status_no_passphrase_message_without_passphrase() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["my secret"])
+        .is_tty(true)
+        .mock_create(Ok(mock_create_response()))
+        .build();
+    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let err = stderr.to_string();
+    assert!(
+        err.contains("Encrypted and uploaded."),
+        "should show plain message without passphrase: {}",
+        err
+    );
+    assert!(
+        !err.contains("with passphrase"),
+        "should NOT mention passphrase when none used: {}",
+        err
+    );
+}

@@ -29,6 +29,8 @@ fn main() {
             w.flush()?;
             rpassword::read_password()
         }),
+        get_keychain_secret: Box::new(secrt::keychain::get_secret),
+        get_keychain_secret_list: Box::new(secrt::keychain::get_secret_list),
     };
 
     let args: Vec<String> = std::env::args().collect();

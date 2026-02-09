@@ -159,6 +159,8 @@ mod tests {
                     api_key: api_key.to_string(),
                 })
             }),
+            get_keychain_secret: Box::new(|_key: &str| None),
+            get_keychain_secret_list: Box::new(|_key: &str| Vec::new()),
         }
     }
 

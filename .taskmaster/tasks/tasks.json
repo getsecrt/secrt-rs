@@ -260,6 +260,21 @@
         ]
       },
       {
+        "id": 11,
+        "title": "Investigate release binary size optimization",
+        "description": "Explore options for reducing the release binary size (~1.45 MB currently). Two main approaches to evaluate, both with trade-offs:\n\n1. **UPX compression** — compresses the binary with runtime decompression. Can cut size significantly but may trigger false positives on antivirus/malware scanners (especially Windows Defender, VirusTotal). Test on macOS, Linux, and Windows. Measure decompression startup latency.\n\n2. **opt-level = \"z\" (optimize for size)** — compiler optimization level that prioritizes code size over speed. Can reduce binary substantially but roughly halves the speed of PBKDF2 passphrase derivation (CPU-bound crypto). Measure the actual impact on `--passphrase-*` operations. Consider whether a profile override for just the `ring` crate (opt-level = 3) could preserve crypto speed while shrinking everything else.\n\nOther options to consider:\n- `lto = true` (already may be set — check Cargo.toml [profile.release])\n- `codegen-units = 1` (better optimization, slower compile)\n- `strip = true` (strip debug symbols)\n- `panic = \"abort\"` (smaller than unwind, already may be set)\n- Auditing dependencies for lighter alternatives\n\nGoal: understand the trade-off space, not necessarily ship a change. Document findings in a comment or subtask.",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [
+          { "id": 1, "title": "Audit current Cargo.toml [profile.release] settings", "status": "pending" },
+          { "id": 2, "title": "Test UPX compression — measure size reduction and check for AV false positives", "status": "pending" },
+          { "id": 3, "title": "Test opt-level = \"z\" — measure size reduction and PBKDF2 speed impact", "status": "pending" },
+          { "id": 4, "title": "Test per-crate opt-level override (ring at opt-level 3, rest at z)", "status": "pending" },
+          { "id": 5, "title": "Document findings and recommendation", "status": "pending" }
+        ]
+      },
+      {
         "id": 8,
         "title": "Add coverage exclusion annotations to untestable code",
         "description": "Rust's #[coverage(off)] attribute is still unstable (tracking issue rust-lang/rust#134749). Once stabilized on stable Rust, annotate the ~129 lines of genuinely untestable code (main.rs I/O wiring, ring crypto internal errors, unreachable branches) so cargo llvm-cov reports accurate achievable coverage. See docs/test-coverage.md 'Theoretical Coverage Ceiling' section for the full list.",

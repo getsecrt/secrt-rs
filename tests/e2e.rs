@@ -243,7 +243,10 @@ fn e2e_server_info_unauthenticated() {
 
     use secrt::client::SecretApi;
     let info = client.info().expect("info() should succeed");
-    assert!(!info.authenticated, "should not be authenticated without key");
+    assert!(
+        !info.authenticated,
+        "should not be authenticated without key"
+    );
     assert_eq!(info.ttl.default_seconds, 86400);
     assert_eq!(info.ttl.max_seconds, 31536000);
     assert!(info.limits.public.max_envelope_bytes > 0);
@@ -279,9 +282,7 @@ fn e2e_config_show_with_server_info() {
     }
     let url = base_url();
 
-    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .env("SECRET_BASE_URL", &url)
-        .build();
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().env("SECRET_BASE_URL", &url).build();
     let code = cli::run(&args(&["secrt", "config"]), &mut deps);
     assert_eq!(code, 0, "config failed: {}", stderr.to_string());
 
@@ -296,11 +297,7 @@ fn e2e_config_show_with_server_info() {
         "should show default_ttl: {}",
         err
     );
-    assert!(
-        err.contains("max_ttl"),
-        "should show max_ttl: {}",
-        err
-    );
+    assert!(err.contains("max_ttl"), "should show max_ttl: {}", err);
     assert!(
         err.contains("max_envelope"),
         "should show max_envelope: {}",

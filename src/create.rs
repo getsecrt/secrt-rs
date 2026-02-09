@@ -67,6 +67,7 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
             return 2;
         }
     };
+    let has_passphrase = !passphrase.is_empty();
 
     // Seal envelope
     let result = envelope::seal(SealParams {
@@ -111,12 +112,17 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
         Ok(r) => {
             if is_tty && !pa.silent {
                 let c = color_func(true);
-                // Format expiry: "Expires 2026-02-10 09:30"
                 let expires_fmt = format_expires(&r.expires_at);
+                let msg = if has_passphrase {
+                    "Encrypted and uploaded with passphrase."
+                } else {
+                    "Encrypted and uploaded."
+                };
                 let _ = write!(
                     deps.stderr,
-                    "\r{} Encrypted and uploaded.  {}\n",
+                    "\r{} {}  {}\n",
                     c(SUCCESS, "\u{2713}"),
+                    msg,
                     c(DIM, &expires_fmt)
                 );
             }

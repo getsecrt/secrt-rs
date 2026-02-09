@@ -230,6 +230,8 @@ impl TestDepsBuilder {
                     Ok(responses.remove(0))
                 }
             }),
+            get_keychain_secret: Box::new(|_key: &str| None),
+            get_keychain_secret_list: Box::new(|_key: &str| Vec::new()),
             make_api: if let Some(mock_responses) = self.mock_responses {
                 Box::new(move |_base_url: &str, _api_key: &str| {
                     Box::new(MockApi::new(mock_responses.clone())) as Box<dyn SecretApi>
