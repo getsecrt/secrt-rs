@@ -196,6 +196,49 @@ fn claim_success_json() {
 }
 
 #[test]
+fn claim_success_json_with_unicode() {
+    // Test that unicode/emoji survives the JSON round-trip
+    let plaintext = "🔐 Secret with émoji and 日本語!".as_bytes();
+    let (share_link, seal_result) = seal_test_secret(plaintext, "");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T12:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link, "--json"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let out = stdout.to_string();
+    let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
+    assert_eq!(
+        json["plaintext"].as_str().unwrap(),
+        "🔐 Secret with émoji and 日本語!"
+    );
+}
+
+#[test]
+fn claim_success_json_with_binary() {
+    // Test that binary data (non-UTF-8) is handled gracefully with lossy conversion
+    let plaintext: &[u8] = &[0x80, 0x81, 0x82, 0xFF, 0xFE]; // Invalid UTF-8 bytes
+    let (share_link, seal_result) = seal_test_secret(plaintext, "");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T12:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link, "--json"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let out = stdout.to_string();
+    let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
+    // Lossy conversion replaces invalid bytes with U+FFFD (replacement character)
+    let plaintext_str = json["plaintext"].as_str().unwrap();
+    assert!(plaintext_str.contains('\u{FFFD}'), "Binary data should contain replacement chars");
+}
+
+#[test]
 fn claim_success_with_passphrase() {
     let plaintext = b"passphrase protected";
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
