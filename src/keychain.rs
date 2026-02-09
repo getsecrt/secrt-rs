@@ -58,3 +58,13 @@ pub fn get_secret(_key: &str) -> Option<String> {
 pub fn get_secret_list(_key: &str) -> Vec<String> {
     Vec::new()
 }
+
+#[cfg(not(feature = "keychain"))]
+pub fn set_secret(_key: &str, _value: &str) -> Result<(), String> {
+    Err("keychain feature not enabled; rebuild with --features keychain".into())
+}
+
+#[cfg(not(feature = "keychain"))]
+pub fn delete_secret(_key: &str) -> Result<(), String> {
+    Err("keychain feature not enabled; rebuild with --features keychain".into())
+}

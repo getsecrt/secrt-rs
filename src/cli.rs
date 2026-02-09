@@ -321,10 +321,12 @@ fn run_config(args: &[String], deps: &mut Deps) -> i32 {
             run_config_init(force, deps)
         }
         "path" => run_config_path(deps),
+        "set-passphrase" => run_config_set_passphrase(deps),
+        "delete-passphrase" => run_config_delete_passphrase(deps),
         _ => {
             let _ = writeln!(
                 deps.stderr,
-                "error: unknown config subcommand {:?} (try: init, path, --help)",
+                "error: unknown config subcommand {:?} (try: init, path, set-passphrase, delete-passphrase, --help)",
                 args[0]
             );
             2
@@ -362,6 +364,128 @@ fn run_config_path(deps: &mut Deps) -> i32 {
             let _ = writeln!(deps.stderr, "error: could not determine config directory");
             1
         }
+    }
+}
+
+fn run_config_set_passphrase(deps: &mut Deps) -> i32 {
+    let c = color_func((deps.is_tty)());
+
+    let p1 = match (deps.read_pass)("Passphrase: ", &mut deps.stderr) {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = writeln!(deps.stderr, "error: failed to read passphrase: {}", e);
+            return 1;
+        }
+    };
+
+    if p1.is_empty() {
+        let _ = writeln!(deps.stderr, "error: passphrase must not be empty");
+        return 1;
+    }
+
+    let p2 = match (deps.read_pass)("   Confirm: ", &mut deps.stderr) {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = writeln!(deps.stderr, "error: failed to read confirmation: {}", e);
+            return 1;
+        }
+    };
+
+    if p1 != p2 {
+        let _ = writeln!(deps.stderr, "error: passphrases do not match");
+        return 1;
+    }
+
+    match crate::keychain::set_secret("passphrase", &p1) {
+        Ok(()) => {
+            let _ = writeln!(
+                deps.stderr,
+                "{} Passphrase saved to OS keychain",
+                c(SUCCESS, "\u{2713}")
+            );
+            0
+        }
+        Err(e) => {
+            let _ = writeln!(deps.stderr, "error: {}", e);
+            let _ = writeln!(
+                deps.stderr,
+                "hint: use --passphrase-env or config file passphrase instead"
+            );
+            1
+        }
+    }
+}
+
+fn run_config_delete_passphrase(deps: &mut Deps) -> i32 {
+    let c = color_func((deps.is_tty)());
+    match crate::keychain::delete_secret("passphrase") {
+        Ok(()) => {
+            let _ = writeln!(
+                deps.stderr,
+                "{} Passphrase removed from OS keychain",
+                c(SUCCESS, "\u{2713}")
+            );
+            0
+        }
+        Err(e) => {
+            let _ = writeln!(deps.stderr, "error: {}", e);
+            1
+        }
+    }
+}
+
+/// Format seconds into a human-readable TTL string (e.g. "24h", "365d").
+fn format_ttl_seconds(secs: i64) -> String {
+    if secs <= 0 {
+        return "0s".into();
+    }
+    let days = secs / 86400;
+    let hours = (secs % 86400) / 3600;
+    let minutes = (secs % 3600) / 60;
+    let remaining_secs = secs % 60;
+
+    if days > 0 && secs % 86400 == 0 {
+        format!("{}d", days)
+    } else if hours > 0 && secs % 3600 == 0 {
+        format!("{}h", hours + days * 24)
+    } else if minutes > 0 && secs % 60 == 0 {
+        format!("{}m", minutes + hours * 60 + days * 1440)
+    } else {
+        // Fallback: show full breakdown
+        let mut parts = Vec::new();
+        if days > 0 {
+            parts.push(format!("{}d", days));
+        }
+        if hours > 0 {
+            parts.push(format!("{}h", hours));
+        }
+        if minutes > 0 {
+            parts.push(format!("{}m", minutes));
+        }
+        if remaining_secs > 0 {
+            parts.push(format!("{}s", remaining_secs));
+        }
+        parts.join("")
+    }
+}
+
+/// Format bytes into a human-readable string (e.g. "256 KB", "1 MB").
+fn format_bytes(b: i64) -> String {
+    if b >= 1024 * 1024 && b % (1024 * 1024) == 0 {
+        format!("{} MB", b / (1024 * 1024))
+    } else if b >= 1024 && b % 1024 == 0 {
+        format!("{} KB", b / 1024)
+    } else {
+        format!("{} bytes", b)
+    }
+}
+
+/// Format a limit value, showing "unlimited" for zero.
+fn format_limit(n: i64) -> String {
+    if n == 0 {
+        "unlimited".into()
+    } else {
+        n.to_string()
     }
 }
 
@@ -463,6 +587,19 @@ fn run_config_show(deps: &mut Deps) -> i32 {
         );
     }
 
+    // Fetch server info (best-effort, non-fatal)
+    let api_key_for_info = if let Some(env) = (deps.getenv)("SECRET_API_KEY") {
+        env
+    } else if let Some(val) = crate::keychain::get_secret("api_key") {
+        val
+    } else if let Some(ref key) = config.api_key {
+        key.clone()
+    } else {
+        String::new()
+    };
+    let api = (deps.make_api)(&base_url_val, &api_key_for_info);
+    let server_info = api.info().ok();
+
     // default_ttl: config/server default
     if let Some(ref ttl) = config.default_ttl {
         let _ = writeln!(
@@ -471,6 +608,14 @@ fn run_config_show(deps: &mut Deps) -> i32 {
             c(OPT, "default_ttl"),
             ttl,
             c(DIM, "(config file)"),
+        );
+    } else if let Some(ref info) = server_info {
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {} {}",
+            c(OPT, "default_ttl"),
+            format_ttl_seconds(info.ttl.default_seconds),
+            c(DIM, "(server default)"),
         );
     } else {
         let _ = writeln!(
@@ -528,6 +673,103 @@ fn run_config_show(deps: &mut Deps) -> i32 {
             c(OPT, "decryption_passphrases"),
             masked,
             c(DIM, &format!("({} entries, {})", merged.len(), src)),
+        );
+    }
+
+    // SERVER LIMITS section
+    let _ = writeln!(deps.stderr);
+    if let Some(ref info) = server_info {
+        let _ = writeln!(
+            deps.stderr,
+            "{} {}",
+            c(HEADING, "SERVER LIMITS"),
+            c(DIM, &format!("(from {})", base_url_val)),
+        );
+
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {} {}",
+            c(OPT, "default_ttl"),
+            format_ttl_seconds(info.ttl.default_seconds),
+            c(DIM, &format!("({}s)", info.ttl.default_seconds)),
+        );
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {} {}",
+            c(OPT, "max_ttl"),
+            format_ttl_seconds(info.ttl.max_seconds),
+            c(DIM, &format!("({}s)", info.ttl.max_seconds)),
+        );
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {}",
+            c(OPT, "authenticated"),
+            if info.authenticated { "yes" } else { "no" },
+        );
+
+        let has_key = !api_key_for_info.is_empty();
+        let (primary, secondary) = if has_key {
+            (&info.limits.authed, &info.limits.public)
+        } else {
+            (&info.limits.public, &info.limits.authed)
+        };
+        let (primary_label, secondary_label) = if has_key {
+            ("authed", "public")
+        } else {
+            ("public", "authed")
+        };
+
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {} {} / {} {}",
+            c(OPT, "max_envelope"),
+            format_bytes(primary.max_envelope_bytes),
+            c(DIM, &format!("({})", primary_label)),
+            format_bytes(secondary.max_envelope_bytes),
+            c(DIM, &format!("({})", secondary_label)),
+        );
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {} {} / {} {}",
+            c(OPT, "max_secrets"),
+            format_limit(primary.max_secrets),
+            c(DIM, &format!("({})", primary_label)),
+            format_limit(secondary.max_secrets),
+            c(DIM, &format!("({})", secondary_label)),
+        );
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {} {} / {} {}",
+            c(OPT, "max_total"),
+            format_bytes(primary.max_total_bytes),
+            c(DIM, &format!("({})", primary_label)),
+            format_bytes(secondary.max_total_bytes),
+            c(DIM, &format!("({})", secondary_label)),
+        );
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {}/s burst {} {} / {}/s burst {} {}",
+            c(OPT, "create_rate"),
+            primary.rate.requests_per_second,
+            primary.rate.burst,
+            c(DIM, &format!("({})", primary_label)),
+            secondary.rate.requests_per_second,
+            secondary.rate.burst,
+            c(DIM, &format!("({})", secondary_label)),
+        );
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {}/s burst {}",
+            c(OPT, "claim_rate"),
+            info.claim_rate.requests_per_second,
+            info.claim_rate.burst,
+        );
+    } else {
+        let _ = writeln!(
+            deps.stderr,
+            "{} {}",
+            c(HEADING, "SERVER LIMITS"),
+            c(DIM, "(server does not support info endpoint)"),
         );
     }
 
@@ -768,9 +1010,11 @@ pub fn print_config_help(deps: &mut Deps) {
         deps.stderr,
         "{} {} — Show config / init / path\n\n\
 {}\n\
-  {} {}           Show effective config and file path\n\
-  {} {} {}      Create template config file\n\
-  {} {} {}      Print config file path\n\n\
+  {} {}                    Show effective config and file path\n\
+  {} {} {}           Create template config file\n\
+  {} {} {}           Print config file path\n\
+  {} {} {}  Store passphrase in OS keychain\n\
+  {} {} {} Remove passphrase from OS keychain\n\n\
 {}\n\
   {}          Overwrite existing config file (for init)\n\
   {}       Show help\n\n\
@@ -790,6 +1034,12 @@ pub fn print_config_help(deps: &mut Deps) {
         c(CMD, "secrt"),
         c(CMD, "config"),
         c(CMD, "path"),
+        c(CMD, "secrt"),
+        c(CMD, "config"),
+        c(CMD, "set-passphrase"),
+        c(CMD, "secrt"),
+        c(CMD, "config"),
+        c(CMD, "delete-passphrase"),
         c(HEADING, "OPTIONS"),
         c(OPT, "--force"),
         c(OPT, "-h, --help"),

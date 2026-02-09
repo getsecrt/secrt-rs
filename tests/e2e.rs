@@ -226,3 +226,100 @@ fn e2e_burn() {
         stderr2.to_string()
     );
 }
+
+#[test]
+#[ignore]
+fn e2e_server_info_unauthenticated() {
+    if should_skip() {
+        return;
+    }
+    let url = base_url();
+
+    // Use the API client directly to test info endpoint
+    let client = secrt::client::ApiClient {
+        base_url: url,
+        api_key: String::new(),
+    };
+
+    use secrt::client::SecretApi;
+    let info = client.info().expect("info() should succeed");
+    assert!(!info.authenticated, "should not be authenticated without key");
+    assert_eq!(info.ttl.default_seconds, 86400);
+    assert_eq!(info.ttl.max_seconds, 31536000);
+    assert!(info.limits.public.max_envelope_bytes > 0);
+    assert!(info.limits.authed.max_envelope_bytes > 0);
+    assert!(info.limits.authed.max_envelope_bytes > info.limits.public.max_envelope_bytes);
+    assert!(info.claim_rate.requests_per_second > 0.0);
+}
+
+#[test]
+#[ignore]
+fn e2e_server_info_authenticated() {
+    if should_skip_api_key() {
+        return;
+    }
+    let url = base_url();
+    let key = api_key();
+
+    let client = secrt::client::ApiClient {
+        base_url: url,
+        api_key: key,
+    };
+
+    use secrt::client::SecretApi;
+    let info = client.info().expect("info() should succeed");
+    assert!(info.authenticated, "should be authenticated with valid key");
+}
+
+#[test]
+#[ignore]
+fn e2e_config_show_with_server_info() {
+    if should_skip() {
+        return;
+    }
+    let url = base_url();
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("SECRET_BASE_URL", &url)
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0, "config failed: {}", stderr.to_string());
+
+    let err = stderr.to_string();
+    assert!(
+        err.contains("SERVER LIMITS"),
+        "should show SERVER LIMITS: {}",
+        err
+    );
+    assert!(
+        err.contains("default_ttl"),
+        "should show default_ttl: {}",
+        err
+    );
+    assert!(
+        err.contains("max_ttl"),
+        "should show max_ttl: {}",
+        err
+    );
+    assert!(
+        err.contains("max_envelope"),
+        "should show max_envelope: {}",
+        err
+    );
+    assert!(
+        err.contains("claim_rate"),
+        "should show claim_rate: {}",
+        err
+    );
+    // default_ttl in EFFECTIVE SETTINGS should show actual value from server
+    assert!(
+        err.contains("1d"),
+        "should show 1d for default_ttl: {}",
+        err
+    );
+    assert!(
+        err.contains("server default"),
+        "should indicate server default: {}",
+        err
+    );
+}

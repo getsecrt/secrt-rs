@@ -4,6 +4,7 @@ use std::fs;
 
 use helpers::{args, TestDepsBuilder};
 use secrt::cli;
+use secrt::client::{InfoLimits, InfoRate, InfoResponse, InfoTTL, InfoTier};
 
 #[test]
 fn no_args_exit_2() {
@@ -519,4 +520,228 @@ fn config_init_template_has_all_fields() {
     );
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+// --- config set-passphrase / delete-passphrase tests ---
+
+#[test]
+fn config_set_passphrase_empty() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().read_pass(&[""]).build();
+    let code = cli::run(&args(&["secrt", "config", "set-passphrase"]), &mut deps);
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("must not be empty"),
+        "should reject empty passphrase: {}",
+        err
+    );
+}
+
+#[test]
+fn config_set_passphrase_mismatch() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["hunter2", "hunter3"])
+        .build();
+    let code = cli::run(&args(&["secrt", "config", "set-passphrase"]), &mut deps);
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("do not match"),
+        "should reject mismatched passphrases: {}",
+        err
+    );
+}
+
+#[test]
+fn config_set_passphrase_read_error() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .read_pass_error("terminal not available")
+        .build();
+    let code = cli::run(&args(&["secrt", "config", "set-passphrase"]), &mut deps);
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("failed to read passphrase"),
+        "should show read error: {}",
+        err
+    );
+}
+
+#[test]
+fn config_unknown_subcommand_lists_new_commands() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(&args(&["secrt", "config", "bogus"]), &mut deps);
+    assert_eq!(code, 2);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("set-passphrase"),
+        "unknown subcommand error should mention set-passphrase: {}",
+        err
+    );
+    assert!(
+        err.contains("delete-passphrase"),
+        "unknown subcommand error should mention delete-passphrase: {}",
+        err
+    );
+}
+
+#[test]
+fn config_help_shows_passphrase_subcommands() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(&args(&["secrt", "config", "--help"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("set-passphrase"),
+        "config help should list set-passphrase: {}",
+        err
+    );
+    assert!(
+        err.contains("delete-passphrase"),
+        "config help should list delete-passphrase: {}",
+        err
+    );
+}
+
+fn mock_info_response(authenticated: bool) -> InfoResponse {
+    InfoResponse {
+        authenticated,
+        ttl: InfoTTL {
+            default_seconds: 86400,
+            max_seconds: 31536000,
+        },
+        limits: InfoLimits {
+            public: InfoTier {
+                max_envelope_bytes: 262144,
+                max_secrets: 10,
+                max_total_bytes: 2097152,
+                rate: InfoRate {
+                    requests_per_second: 0.5,
+                    burst: 6,
+                },
+            },
+            authed: InfoTier {
+                max_envelope_bytes: 1048576,
+                max_secrets: 1000,
+                max_total_bytes: 20971520,
+                rate: InfoRate {
+                    requests_per_second: 2.0,
+                    burst: 20,
+                },
+            },
+        },
+        claim_rate: InfoRate {
+            requests_per_second: 1.0,
+            burst: 10,
+        },
+    }
+}
+
+#[test]
+fn config_show_with_server_info() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .mock_info(Ok(mock_info_response(false)))
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("SERVER LIMITS"),
+        "should show SERVER LIMITS section: {}",
+        err
+    );
+    assert!(
+        err.contains("max_envelope"),
+        "should show max_envelope: {}",
+        err
+    );
+    assert!(
+        err.contains("256 KB"),
+        "should show 256 KB for public envelope: {}",
+        err
+    );
+    assert!(
+        err.contains("1 MB"),
+        "should show 1 MB for authed envelope: {}",
+        err
+    );
+    assert!(
+        err.contains("claim_rate"),
+        "should show claim_rate: {}",
+        err
+    );
+}
+
+#[test]
+fn config_show_server_unreachable() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .mock_info(Err("connection refused".into()))
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("SERVER LIMITS"),
+        "should still show SERVER LIMITS heading: {}",
+        err
+    );
+    assert!(
+        err.contains("server does not support info endpoint"),
+        "should show fallback message: {}",
+        err
+    );
+}
+
+#[test]
+fn config_show_server_default_ttl_from_info() {
+    let cfg_dir = setup_config("base_url = \"https://ok.com\"\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .mock_info(Ok(mock_info_response(false)))
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    // In EFFECTIVE SETTINGS, default_ttl should show "1d" (86400s) from server info
+    assert!(
+        err.contains("1d"),
+        "default_ttl should show 1d from server info: {}",
+        err
+    );
+    assert!(
+        err.contains("server default"),
+        "default_ttl should indicate server default: {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+#[test]
+fn config_show_authenticated_server_info() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("SECRET_API_KEY", "sk_test.secret123")
+        .mock_info(Ok(mock_info_response(true)))
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("authenticated"),
+        "should show authenticated field: {}",
+        err
+    );
+    assert!(err.contains("yes"), "authenticated should be yes: {}", err);
+    // When authenticated, authed tier should be shown first
+    // max_envelope line should start with 1 MB (authed) before 256 KB (public)
+    let envelope_line = err
+        .lines()
+        .find(|l| l.contains("max_envelope"))
+        .unwrap_or("");
+    let mb_pos = envelope_line.find("1 MB").unwrap_or(usize::MAX);
+    let kb_pos = envelope_line.find("256 KB").unwrap_or(usize::MAX);
+    assert!(
+        mb_pos < kb_pos,
+        "authed (1 MB) should appear before public (256 KB): {}",
+        envelope_line
+    );
 }

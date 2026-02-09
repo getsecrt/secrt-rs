@@ -17,7 +17,7 @@ dirs = "6"
 keyring = { version = "3", optional = true, features = ["apple-native", "linux-native", "windows-native"] }
 
 [features]
-default = []
+default = ["keychain"]
 keychain = ["keyring"]
 
 [dev-dependencies]

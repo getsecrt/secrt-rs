@@ -33,11 +33,47 @@ pub struct ClaimResponse {
     pub expires_at: String,
 }
 
+/// Server info response from GET /api/v1/info.
+#[derive(Clone, Deserialize)]
+pub struct InfoResponse {
+    pub authenticated: bool,
+    pub ttl: InfoTTL,
+    pub limits: InfoLimits,
+    pub claim_rate: InfoRate,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct InfoTTL {
+    pub default_seconds: i64,
+    pub max_seconds: i64,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct InfoLimits {
+    pub public: InfoTier,
+    pub authed: InfoTier,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct InfoTier {
+    pub max_envelope_bytes: i64,
+    pub max_secrets: i64,
+    pub max_total_bytes: i64,
+    pub rate: InfoRate,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct InfoRate {
+    pub requests_per_second: f64,
+    pub burst: i64,
+}
+
 /// Trait abstracting the API for testing.
 pub trait SecretApi {
     fn create(&self, req: CreateRequest) -> Result<CreateResponse, String>;
     fn claim(&self, secret_id: &str, claim_token: &[u8]) -> Result<ClaimResponse, String>;
     fn burn(&self, secret_id: &str) -> Result<(), String>;
+    fn info(&self) -> Result<InfoResponse, String>;
 }
 
 /// HTTP API client for secrt.
@@ -200,6 +236,38 @@ impl SecretApi for ApiClient {
         }
 
         Ok(())
+    }
+
+    fn info(&self) -> Result<InfoResponse, String> {
+        let endpoint = format!("{}/api/v1/info", self.base_url);
+
+        let agent = ureq::Agent::new_with_config(
+            ureq::config::Config::builder()
+                .timeout_global(Some(Duration::from_secs(2)))
+                .http_status_as_error(false)
+                .build(),
+        );
+
+        let mut request = agent.get(&endpoint);
+
+        if !self.api_key.is_empty() {
+            request = request.header("X-API-Key", &self.api_key);
+        }
+
+        let resp = request.call().map_err(|e| self.handle_ureq_error(e))?;
+
+        if resp.status().as_u16() != 200 {
+            return Err(self.read_api_error_from_response(resp));
+        }
+
+        let body_str = resp
+            .into_body()
+            .read_to_string()
+            .map_err(|e| format!("decode response: {}", e))?;
+        let result: InfoResponse =
+            serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))?;
+
+        Ok(result)
     }
 }
 

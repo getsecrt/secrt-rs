@@ -5,7 +5,9 @@ use std::io::{self, Cursor, Write};
 use std::sync::{Arc, Mutex};
 
 use secrt::cli::Deps;
-use secrt::client::{ApiClient, ClaimResponse, CreateRequest, CreateResponse, SecretApi};
+use secrt::client::{
+    ApiClient, ClaimResponse, CreateRequest, CreateResponse, InfoResponse, SecretApi,
+};
 use secrt::envelope::EnvelopeError;
 
 /// A shared buffer that implements Write for capturing output.
@@ -40,6 +42,7 @@ pub struct MockApiResponses {
     pub create: Option<Result<CreateResponse, String>>,
     pub claim: Option<Result<ClaimResponse, String>>,
     pub burn: Option<Result<(), String>>,
+    pub info: Option<Result<InfoResponse, String>>,
 }
 
 impl Default for MockApiResponses {
@@ -48,6 +51,7 @@ impl Default for MockApiResponses {
             create: None,
             claim: None,
             burn: None,
+            info: None,
         }
     }
 }
@@ -92,6 +96,14 @@ impl SecretApi for MockApi {
             Some(Ok(())) => Ok(()),
             Some(Err(e)) => Err(e.clone()),
             None => Err("mock: burn not configured".into()),
+        }
+    }
+
+    fn info(&self) -> Result<InfoResponse, String> {
+        match &self.responses.info {
+            Some(Ok(r)) => Ok(r.clone()),
+            Some(Err(e)) => Err(e.clone()),
+            None => Err("mock: info not configured".into()),
         }
     }
 }
@@ -169,6 +181,13 @@ impl TestDepsBuilder {
         self.mock_responses
             .get_or_insert_with(MockApiResponses::default)
             .burn = Some(resp);
+        self
+    }
+
+    pub fn mock_info(mut self, resp: Result<InfoResponse, String>) -> Self {
+        self.mock_responses
+            .get_or_insert_with(MockApiResponses::default)
+            .info = Some(resp);
         self
     }
 

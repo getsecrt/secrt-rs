@@ -21,7 +21,7 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
             COMPREPLY=($(compgen -W "--api-key --base-url --json --silent --help" -- "${cur}"))
             ;;
         config)
-            COMPREPLY=($(compgen -W "init path --force" -- "${cur}"))
+            COMPREPLY=($(compgen -W "init path set-passphrase delete-passphrase --force" -- "${cur}"))
             ;;
         completion)
             COMPREPLY=($(compgen -W "bash zsh fish" -- "${cur}"))
@@ -94,7 +94,7 @@ _secrt() {
                     ;;
                 config)
                     _arguments \
-                        '1:subcommand:(init path)' \
+                        '1:subcommand:(init path set-passphrase delete-passphrase)' \
                         '--force[Overwrite existing config file]'
                     ;;
                 completion)
@@ -144,7 +144,7 @@ complete -c secrt -n '__fish_seen_subcommand_from burn' -l base-url -d 'Server U
 complete -c secrt -n '__fish_seen_subcommand_from burn' -l json -d 'Output as JSON'
 complete -c secrt -n '__fish_seen_subcommand_from burn' -l silent -d 'Suppress status output'
 
-complete -c secrt -n '__fish_seen_subcommand_from config' -a 'init path' -d 'Config subcommand'
+complete -c secrt -n '__fish_seen_subcommand_from config' -a 'init path set-passphrase delete-passphrase' -d 'Config subcommand'
 complete -c secrt -n '__fish_seen_subcommand_from config' -l force -d 'Overwrite existing config file'
 
 complete -c secrt -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'
