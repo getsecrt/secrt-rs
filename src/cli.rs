@@ -3,7 +3,7 @@ use std::io::{self, Read, Write};
 use crate::burn::run_burn;
 use crate::claim::run_claim;
 use crate::client::SecretApi;
-use crate::color::{color_func, CMD, OPT, ARG, HEADING, DIM, SUCCESS};
+use crate::color::{color_func, ARG, CMD, DIM, HEADING, OPT, SUCCESS};
 use crate::completion::{BASH_COMPLETION, FISH_COMPLETION, ZSH_COMPLETION};
 use crate::create::run_create;
 
@@ -61,6 +61,9 @@ pub struct ParsedArgs {
     // Populated from config file (not from CLI flags)
     pub passphrase_default: String,
     pub show_default: bool,
+
+    // Decryption passphrase list (from config/keychain, not CLI flags)
+    pub decryption_passphrases: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -242,12 +245,16 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
 
 /// Fill in defaults: CLI flag > env var > config file > built-in default.
 pub fn resolve_globals(pa: &mut ParsedArgs, deps: &mut Deps) {
-    let config = crate::config::load_config(&mut deps.stderr);
+    let config = crate::config::load_config_with(&*deps.getenv, &mut deps.stderr);
     resolve_globals_with_config(pa, deps, &config);
 }
 
 /// Inner function that accepts an explicit Config (used by tests).
-pub fn resolve_globals_with_config(pa: &mut ParsedArgs, deps: &Deps, config: &crate::config::Config) {
+pub fn resolve_globals_with_config(
+    pa: &mut ParsedArgs,
+    deps: &Deps,
+    config: &crate::config::Config,
+) {
     if pa.base_url.is_empty() {
         if let Some(env) = (deps.getenv)("SECRET_BASE_URL") {
             pa.base_url = env;
@@ -275,6 +282,26 @@ pub fn resolve_globals_with_config(pa: &mut ParsedArgs, deps: &Deps, config: &cr
     }
     if let Some(show) = config.show_input {
         pa.show_default = show;
+    }
+
+    // default_ttl: only if no --ttl flag was provided
+    if pa.ttl.is_empty() {
+        if let Some(ref ttl) = config.default_ttl {
+            pa.ttl = ttl.clone();
+        }
+    }
+
+    // decryption_passphrases: keychain (JSON array) then config, merged + deduped
+    {
+        let mut dp = crate::keychain::get_secret_list("decryption_passphrases");
+        for p in &config.decryption_passphrases {
+            if !dp.contains(p) {
+                dp.push(p.clone());
+            }
+        }
+        if !dp.is_empty() {
+            pa.decryption_passphrases = dp;
+        }
     }
 }
 
@@ -340,7 +367,7 @@ fn run_config_path(deps: &mut Deps) -> i32 {
 
 fn run_config_show(deps: &mut Deps) -> i32 {
     let c = color_func((deps.is_stdout_tty)());
-    let config = crate::config::load_config(&mut deps.stderr);
+    let config = crate::config::load_config_with(&*deps.getenv, &mut deps.stderr);
 
     // Config file path
     let resolved_path = crate::config::config_path_with(&*deps.getenv);
@@ -348,10 +375,7 @@ fn run_config_show(deps: &mut Deps) -> i32 {
         .as_ref()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "(unknown)".into());
-    let config_exists = resolved_path
-        .as_ref()
-        .map(|p| p.exists())
-        .unwrap_or(false);
+    let config_exists = resolved_path.as_ref().map(|p| p.exists()).unwrap_or(false);
 
     let _ = writeln!(
         deps.stderr,
@@ -439,6 +463,29 @@ fn run_config_show(deps: &mut Deps) -> i32 {
         );
     }
 
+    // default_ttl: config/none
+    let (ttl_display, ttl_src) = if let Some(ref ttl) = config.default_ttl {
+        (ttl.clone(), "config file")
+    } else {
+        ("(not set)".into(), "")
+    };
+    if ttl_src.is_empty() {
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {}",
+            c(OPT, "default_ttl"),
+            c(DIM, &ttl_display),
+        );
+    } else {
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {} {}",
+            c(OPT, "default_ttl"),
+            ttl_display,
+            c(DIM, &format!("({})", ttl_src)),
+        );
+    }
+
     // show_input: config/default
     let (show_val, show_src) = if let Some(show) = config.show_input {
         (show.to_string(), "config file")
@@ -452,6 +499,42 @@ fn run_config_show(deps: &mut Deps) -> i32 {
         show_val,
         c(DIM, &format!("({})", show_src)),
     );
+
+    // decryption_passphrases: keychain/config/both/none
+    let kc_list = crate::keychain::get_secret_list("decryption_passphrases");
+    let cfg_list = &config.decryption_passphrases;
+    let has_kc = !kc_list.is_empty();
+    let has_cfg = !cfg_list.is_empty();
+    if !has_kc && !has_cfg {
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {}",
+            c(OPT, "decryption_passphrases"),
+            c(DIM, "(not set)"),
+        );
+    } else {
+        // Merge for display: keychain first, then config (deduped)
+        let mut merged = kc_list.clone();
+        for p in cfg_list {
+            if !merged.contains(p) {
+                merged.push(p.clone());
+            }
+        }
+        let masked = crate::config::mask_secret_list(&merged);
+        let src = match (has_kc, has_cfg) {
+            (true, true) => "keychain + config file",
+            (true, false) => "keychain",
+            (false, true) => "config file",
+            (false, false) => unreachable!(),
+        };
+        let _ = writeln!(
+            deps.stderr,
+            "  {}: {} {}",
+            c(OPT, "decryption_passphrases"),
+            masked,
+            c(DIM, &format!("({} entries, {})", merged.len(), src)),
+        );
+    }
 
     0
 }
@@ -499,7 +582,8 @@ pub fn print_help(deps: &mut Deps) {
   {} {}     Create template config file\n\
   {}               Print config file path\n\
   Settings are loaded from {}.\n\
-  Supported keys: api_key, base_url, passphrase, show_input.\n\
+  Supported keys: api_key, base_url, default_ttl, passphrase,\n\
+  decryption_passphrases, show_input.\n\
   Precedence: CLI flag > env var > config file > default.\n",
         c(CMD, "secrt"),
         c(HEADING, "USAGE"),
@@ -697,7 +781,8 @@ pub fn print_config_help(deps: &mut Deps) {
   {}              Show help\n\n\
 {}\n\
   Settings are loaded from ~/.config/secrt/config.toml.\n\
-  Supported keys: api_key, base_url, passphrase, show_input.\n\
+  Supported keys: api_key, base_url, default_ttl, passphrase,\n\
+  decryption_passphrases, show_input.\n\
   Precedence: CLI flag > env var > config file > default.\n",
         c(CMD, "secrt"),
         c(CMD, "config"),
@@ -1056,5 +1141,51 @@ mod tests {
         let mut pa = ParsedArgs::default();
         resolve_globals_with_config(&mut pa, &deps, &config);
         assert!(pa.show_default);
+    }
+
+    #[test]
+    fn globals_config_default_ttl() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config {
+            default_ttl: Some("2h".into()),
+            ..Default::default()
+        };
+        let mut pa = ParsedArgs::default();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert_eq!(pa.ttl, "2h");
+    }
+
+    #[test]
+    fn globals_flag_ttl_overrides_config() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config {
+            default_ttl: Some("2h".into()),
+            ..Default::default()
+        };
+        let mut pa = ParsedArgs::default();
+        pa.ttl = "5m".into();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert_eq!(pa.ttl, "5m", "--ttl flag should override config");
+    }
+
+    #[test]
+    fn globals_config_decryption_passphrases() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config {
+            decryption_passphrases: vec!["pass1".into(), "pass2".into()],
+            ..Default::default()
+        };
+        let mut pa = ParsedArgs::default();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert_eq!(pa.decryption_passphrases, vec!["pass1", "pass2"]);
+    }
+
+    #[test]
+    fn globals_config_no_default_ttl() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config::default();
+        let mut pa = ParsedArgs::default();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert!(pa.ttl.is_empty(), "ttl should remain empty when no config");
     }
 }
