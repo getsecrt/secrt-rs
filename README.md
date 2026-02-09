@@ -4,6 +4,8 @@ A fast, minimal CLI for [secrt.ca](https://secrt.ca) — one-time secret sharing
 
 Built in Rust. No async runtime, no framework overhead. AES-256-GCM + HKDF-SHA256 + optional PBKDF2 passphrase protection, all powered by [ring](https://github.com/briansmith/ring).
 
+**Download:** [macOS (Universal)](https://github.com/getsecrt/secrt-rs/releases/latest/download/secrt-darwin-universal) | [Linux (x86_64)](https://github.com/getsecrt/secrt-rs/releases/latest/download/secrt-linux-amd64) | [Windows (x86_64)](https://github.com/getsecrt/secrt-rs/releases/latest/download/secrt-windows-amd64.exe)
+
 > **Server project:** [getsecrt/secrt](https://github.com/getsecrt/secrt)
 
 ## Install
