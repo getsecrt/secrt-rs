@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0 — 2026-02-10
+
+### Added
+
+- **Windows code signing:** Release binaries are now Authenticode-signed via Azure Artifact Signing (FullSpec Systems).
+- **Windows ARM64 build:** Release now includes `secrt-windows-arm64.exe` for Windows on ARM devices.
+- **`-f` shorthand for `--file`:** `secrt create -f <path>` as alias for `--file`.
+- **Local timezone display:** Secret expiry timestamps now show the local time alongside UTC.
+- **README logo:** Added secrt logo to the README.
+
+### Fixed
+
+- Claim auto-saves binary data to a file instead of dumping raw bytes to the terminal.
+- Flaky test fix: avoid process-global cwd change in parallel tests.
+
 ## 0.1.1 — 2026-02-09
 
 ### Added

@@ -60,6 +60,11 @@ jobs:
             runner: windows-latest
             tool: cargo
             artifact: secrt-windows-amd64.exe
+          - name: windows-arm64
+            target: aarch64-pc-windows-msvc
+            runner: windows-latest
+            tool: cargo
+            artifact: secrt-windows-arm64.exe
 
     steps:
       - uses: actions/checkout@v4
@@ -231,4 +236,5 @@ jobs:
             artifacts/secrt-linux-amd64
             artifacts/secrt-linux-arm64
             artifacts/secrt-windows-amd64.exe
+            artifacts/secrt-windows-arm64.exe
             artifacts/secrt-checksums-sha256.txt
