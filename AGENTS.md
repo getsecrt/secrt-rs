@@ -51,7 +51,18 @@ make check    # clippy + fmt check
 make size     # show release binary size
 ```
 
+## Before committing
 
+Always run before committing code changes:
+
+```sh
+cargo fmt      # auto-fix formatting
+make check     # clippy + fmt check (will catch any remaining issues)
+make test      # ensure tests pass
+```
+
+CI runs `cargo fmt --check` and `cargo clippy -- -D warnings` — commits that
+fail formatting or linting will break the build.
 
 ## Project Task Tracking
 

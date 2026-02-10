@@ -8,6 +8,7 @@ pub mod config;
 pub mod create;
 pub mod envelope;
 pub mod fileutil;
+pub mod gen;
 pub mod keychain;
 pub mod mime;
 pub mod passphrase;

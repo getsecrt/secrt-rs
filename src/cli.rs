@@ -6,6 +6,7 @@ use crate::client::SecretApi;
 use crate::color::{color_func, ARG, CMD, DIM, HEADING, OPT, SUCCESS};
 use crate::completion::{BASH_COMPLETION, FISH_COMPLETION, ZSH_COMPLETION};
 use crate::create::run_create;
+use crate::gen::run_gen;
 
 const DEFAULT_BASE_URL: &str = "https://secrt.ca";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -66,6 +67,14 @@ pub struct ParsedArgs {
     // Claim
     pub output: String,
 
+    // Gen
+    pub gen_length: u32,
+    pub gen_no_symbols: bool,
+    pub gen_no_numbers: bool,
+    pub gen_no_caps: bool,
+    pub gen_grouped: bool,
+    pub gen_count: u32,
+
     // Populated from config file (not from CLI flags)
     pub passphrase_default: String,
     pub show_default: bool,
@@ -113,6 +122,7 @@ pub fn run(args: &[String], deps: &mut Deps) -> i32 {
         "create" => run_create(remaining, deps),
         "claim" => run_claim(remaining, deps),
         "burn" => run_burn(remaining, deps),
+        "gen" | "generate" => run_gen(remaining, deps),
         _ if command.contains("#v1.") => {
             // Implicit claim: treat share URLs/bare IDs as `secrt claim <url>`
             run_claim(&args[1..], deps)
@@ -134,6 +144,7 @@ fn run_help(args: &[String], deps: &mut Deps) -> i32 {
         "create" => print_create_help(deps),
         "claim" => print_claim_help(deps),
         "burn" => print_burn_help(deps),
+        "gen" | "generate" => print_gen_help(deps),
         "config" => print_config_help(deps),
         _ => {
             let _ = writeln!(deps.stderr, "error: unknown command {:?}", args[0]);
@@ -194,13 +205,19 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
             continue;
         }
 
-        // Support --flag=value syntax: split on first '=' for long flags
+        // Support --flag=value and -Xvalue syntax
         let (flag, inline_val) = if arg.starts_with("--") {
+            // Long flags: split on first '='
             if let Some(eq) = arg.find('=') {
                 (&arg[..eq], Some(arg[eq + 1..].to_string()))
             } else {
                 (arg.as_str(), None)
             }
+        } else if arg.len() > 2 {
+            // Short flags: -X<value> or -X=<value>
+            let val = &arg[2..];
+            let val = val.strip_prefix('=').unwrap_or(val);
+            (&arg[..2], Some(val.to_string()))
         } else {
             (arg.as_str(), None)
         };
@@ -214,10 +231,7 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
                 } else {
                     i += 1;
                     if i >= args.len() {
-                        return Err(CliError::Error(format!(
-                            "{} requires a value",
-                            $flag_name
-                        )));
+                        return Err(CliError::Error(format!("{} requires a value", $flag_name)));
                     }
                     args[i].clone()
                 }
@@ -245,6 +259,37 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
             "--no-passphrase" | "-n" => pa.no_passphrase = true,
             "--passphrase-env" => pa.passphrase_env = next_val!("--passphrase-env"),
             "--passphrase-file" => pa.passphrase_file = next_val!("--passphrase-file"),
+            // Gen flags
+            "--length" | "-L" => {
+                let val = next_val!("--length");
+                pa.gen_length = val
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|&n| n >= 1)
+                    .ok_or_else(|| {
+                        CliError::Error(format!(
+                            "--length requires a positive integer, got {:?}",
+                            val
+                        ))
+                    })?;
+            }
+            "--no-symbols" | "-S" => pa.gen_no_symbols = true,
+            "--no-numbers" | "-N" => pa.gen_no_numbers = true,
+            "--no-caps" | "-C" => pa.gen_no_caps = true,
+            "--grouped" | "-G" => pa.gen_grouped = true,
+            "--count" => {
+                let val = next_val!("--count");
+                pa.gen_count = val
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|&n| n >= 1)
+                    .ok_or_else(|| {
+                        CliError::Error(format!(
+                            "--count requires a positive integer, got {:?}",
+                            val
+                        ))
+                    })?;
+            }
             _ => return Err(CliError::Error(format!("unknown flag: {}", arg))),
         }
         i += 1;
@@ -842,133 +887,376 @@ pub fn print_help(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
     let w = &mut deps.stderr;
     let _ = writeln!(w, "{} — one-time secret sharing\n", c(CMD, "secrt"));
-    let _ = writeln!(w, "{}\n  {} {} {}\n", c(HEADING, "USAGE"), c(CMD, "secrt"), c(CMD, "<command>"), c(ARG, "[options]"));
+    let _ = writeln!(
+        w,
+        "{}\n  {} {} {}\n",
+        c(HEADING, "USAGE"),
+        c(CMD, "secrt"),
+        c(CMD, "<command>"),
+        c(ARG, "[options]")
+    );
     let _ = writeln!(w, "{}", c(HEADING, "COMMANDS"));
-    write_cmd_rows(w, &c, &[
-        ("create",     "Encrypt and upload a secret"),
-        ("claim",      "Retrieve and decrypt a secret"),
-        ("burn",       "Destroy a secret (requires API key)"),
-        ("config",     "Show config / init / path"),
-        ("version",    "Show version"),
-        ("help",       "Show this help"),
-        ("completion", "Output shell completion script"),
-    ]);
+    write_cmd_rows(
+        w,
+        &c,
+        &[
+            ("create", "Encrypt and upload a secret"),
+            ("claim", "Retrieve and decrypt a secret"),
+            ("burn", "Destroy a secret (requires API key)"),
+            ("gen", "Generate a random password"),
+            ("config", "Show config / init / path"),
+            ("version", "Show version"),
+            ("help", "Show this help"),
+            ("completion", "Output shell completion script"),
+        ],
+    );
     let _ = writeln!(w, "\n{}", c(HEADING, "GLOBAL OPTIONS"));
-    write_option_rows(w, &c, &[
-        ("--base-url",    "<url>", "Server URL (default: https://secrt.ca)"),
-        ("--api-key",     "<key>", "API key for authenticated access"),
-        ("--json",        "",      "Output as JSON"),
-        ("--silent",      "",      "Suppress status output"),
-        ("-h, --help",    "",      "Show help"),
-        ("-v, --version", "",      "Show version"),
-    ]);
+    write_option_rows(
+        w,
+        &c,
+        &[
+            (
+                "--base-url",
+                "<url>",
+                "Server URL (default: https://secrt.ca)",
+            ),
+            ("--api-key", "<key>", "API key for authenticated access"),
+            ("--json", "", "Output as JSON"),
+            ("--silent", "", "Suppress status output"),
+            ("-h, --help", "", "Show help"),
+            ("-v, --version", "", "Show version"),
+        ],
+    );
     let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
-    let _ = writeln!(w, "  echo \"pw123\" | {} {}", c(CMD, "secrt"), c(CMD, "create"));
-    let _ = writeln!(w, "  {} https://secrt.ca/s/abc#v1.key", c(CMD, "secrt claim"));
+    let _ = writeln!(
+        w,
+        "  echo \"pw123\" | {} {}",
+        c(CMD, "secrt"),
+        c(CMD, "create")
+    );
+    let _ = writeln!(
+        w,
+        "  {} https://secrt.ca/s/abc#v1.key",
+        c(CMD, "secrt claim")
+    );
     let _ = writeln!(w, "\n{}", c(HEADING, "CONFIG"));
-    write_cmd_rows(w, &c, &[
-        ("config init [--force]", "Create template config file"),
-        ("config path",           "Print config file path"),
-    ]);
-    let _ = writeln!(w, "  Settings are loaded from {}.", c(DIM, "~/.config/secrt/config.toml"));
-    let _ = writeln!(w, "  Supported keys: api_key, base_url, default_ttl, passphrase,");
+    write_cmd_rows(
+        w,
+        &c,
+        &[
+            ("config init [--force]", "Create template config file"),
+            ("config path", "Print config file path"),
+        ],
+    );
+    let _ = writeln!(
+        w,
+        "  Settings are loaded from {}.",
+        c(DIM, "~/.config/secrt/config.toml")
+    );
+    let _ = writeln!(
+        w,
+        "  Supported keys: api_key, base_url, default_ttl, passphrase,"
+    );
     let _ = writeln!(w, "  decryption_passphrases, show_input.");
-    let _ = writeln!(w, "  Precedence: CLI flag > env var > config file > default.");
+    let _ = writeln!(
+        w,
+        "  Precedence: CLI flag > env var > config file > default."
+    );
 }
 
 pub fn print_create_help(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
     let w = &mut deps.stderr;
-    let _ = writeln!(w, "{} {} — Encrypt and upload a secret\n", c(CMD, "secrt"), c(CMD, "create"));
-    let _ = writeln!(w, "{}\n  {} {} {}\n", c(HEADING, "USAGE"), c(CMD, "secrt"), c(CMD, "create"), c(ARG, "[options]"));
+    let _ = writeln!(
+        w,
+        "{} {} — Encrypt and upload a secret\n",
+        c(CMD, "secrt"),
+        c(CMD, "create")
+    );
+    let _ = writeln!(
+        w,
+        "{}\n  {} {} {}\n",
+        c(HEADING, "USAGE"),
+        c(CMD, "secrt"),
+        c(CMD, "create"),
+        c(ARG, "[options]")
+    );
     let _ = writeln!(w, "{}", c(HEADING, "OPTIONS"));
-    write_option_rows(w, &c, &[
-        ("--ttl",                   "<ttl>",   "TTL for the secret (e.g., 5m, 2h, 1d)"),
-        ("--text",                  "<value>", "Secret text (visible in shell history)"),
-        ("-f, --file",              "<path>",  "Read secret from a file"),
-        ("-m, --multi-line",        "",        "Multi-line input (read until Ctrl+D)"),
-        ("--trim",                  "",        "Trim leading/trailing whitespace"),
-        ("-s, --show",              "",        "Show input as you type"),
-        ("--hidden",                "",        "Hide input (default, overrides --show)"),
-        ("-p, --passphrase-prompt", "",        "Prompt for passphrase"),
-        ("-n, --no-passphrase",     "",        "Skip default passphrase"),
-        ("--passphrase-env",        "<name>",  "Read passphrase from env var"),
-        ("--passphrase-file",       "<path>",  "Read passphrase from file"),
-        ("--base-url",              "<url>",   "Server URL"),
-        ("--api-key",               "<key>",   "API key"),
-        ("--json",                  "",        "Output as JSON"),
-        ("--silent",                "",        "Suppress status output"),
-        ("-h, --help",              "",        "Show help"),
-    ]);
+    write_option_rows(
+        w,
+        &c,
+        &[
+            ("--ttl", "<ttl>", "TTL for the secret (e.g., 5m, 2h, 1d)"),
+            (
+                "--text",
+                "<value>",
+                "Secret text (visible in shell history)",
+            ),
+            ("-f, --file", "<path>", "Read secret from a file"),
+            (
+                "-m, --multi-line",
+                "",
+                "Multi-line input (read until Ctrl+D)",
+            ),
+            ("--trim", "", "Trim leading/trailing whitespace"),
+            ("-s, --show", "", "Show input as you type"),
+            ("--hidden", "", "Hide input (default, overrides --show)"),
+            ("-p, --passphrase-prompt", "", "Prompt for passphrase"),
+            ("-n, --no-passphrase", "", "Skip default passphrase"),
+            ("--passphrase-env", "<name>", "Read passphrase from env var"),
+            ("--passphrase-file", "<path>", "Read passphrase from file"),
+            ("--base-url", "<url>", "Server URL"),
+            ("--api-key", "<key>", "API key"),
+            ("--json", "", "Output as JSON"),
+            ("--silent", "", "Suppress status output"),
+            ("-h, --help", "", "Show help"),
+        ],
+    );
     let _ = writeln!(w, "\n{}", c(HEADING, "INPUT"));
-    let _ = writeln!(w, "  Interactive: single-line hidden input (like a password).");
-    let _ = writeln!(w, "  Use {} for multi-line input, {} or {} for alternatives.", c(OPT, "-m"), c(OPT, "--text"), c(OPT, "-f/--file"));
-    let _ = writeln!(w, "  Set show_input = true in config to show input by default.");
+    let _ = writeln!(
+        w,
+        "  Interactive: single-line hidden input (like a password)."
+    );
+    let _ = writeln!(
+        w,
+        "  Use {} for multi-line input, {} or {} for alternatives.",
+        c(OPT, "-m"),
+        c(OPT, "--text"),
+        c(OPT, "-f/--file")
+    );
+    let _ = writeln!(
+        w,
+        "  Set show_input = true in config to show input by default."
+    );
     let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
-    let _ = writeln!(w, "  echo \"secret\" | {} {}", c(CMD, "secrt"), c(CMD, "create"));
-    let _ = writeln!(w, "  {} {} {} \"my secret\" {} 5m", c(CMD, "secrt"), c(CMD, "create"), c(OPT, "--text"), c(OPT, "--ttl"));
+    let _ = writeln!(
+        w,
+        "  echo \"secret\" | {} {}",
+        c(CMD, "secrt"),
+        c(CMD, "create")
+    );
+    let _ = writeln!(
+        w,
+        "  {} {} {} \"my secret\" {} 5m",
+        c(CMD, "secrt"),
+        c(CMD, "create"),
+        c(OPT, "--text"),
+        c(OPT, "--ttl")
+    );
 }
 
 pub fn print_claim_help(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
     let w = &mut deps.stderr;
-    let _ = writeln!(w, "{} {} — Retrieve and decrypt a secret\n", c(CMD, "secrt"), c(CMD, "claim"));
-    let _ = writeln!(w, "{}\n  {} {} {} {}\n", c(HEADING, "USAGE"), c(CMD, "secrt"), c(CMD, "claim"), c(ARG, "<share-url>"), c(ARG, "[options]"));
+    let _ = writeln!(
+        w,
+        "{} {} — Retrieve and decrypt a secret\n",
+        c(CMD, "secrt"),
+        c(CMD, "claim")
+    );
+    let _ = writeln!(
+        w,
+        "{}\n  {} {} {} {}\n",
+        c(HEADING, "USAGE"),
+        c(CMD, "secrt"),
+        c(CMD, "claim"),
+        c(ARG, "<share-url>"),
+        c(ARG, "[options]")
+    );
     let _ = writeln!(w, "{}", c(HEADING, "OPTIONS"));
-    write_option_rows(w, &c, &[
-        ("-o, --output",            "<path>", "Write output to file (use - for stdout)"),
-        ("-p, --passphrase-prompt", "",        "Prompt for passphrase"),
-        ("-n, --no-passphrase",     "",        "Skip configured decryption passphrases"),
-        ("--passphrase-env",        "<name>",  "Read passphrase from env var"),
-        ("--passphrase-file",       "<path>",  "Read passphrase from file"),
-        ("--base-url",              "<url>",   "Server URL"),
-        ("--json",                  "",        "Output as JSON"),
-        ("--silent",                "",        "Suppress status output"),
-        ("-h, --help",              "",        "Show help"),
-    ]);
+    write_option_rows(
+        w,
+        &c,
+        &[
+            (
+                "-o, --output",
+                "<path>",
+                "Write output to file (use - for stdout)",
+            ),
+            ("-p, --passphrase-prompt", "", "Prompt for passphrase"),
+            (
+                "-n, --no-passphrase",
+                "",
+                "Skip configured decryption passphrases",
+            ),
+            ("--passphrase-env", "<name>", "Read passphrase from env var"),
+            ("--passphrase-file", "<path>", "Read passphrase from file"),
+            ("--base-url", "<url>", "Server URL"),
+            ("--json", "", "Output as JSON"),
+            ("--silent", "", "Suppress status output"),
+            ("-h, --help", "", "Show help"),
+        ],
+    );
     let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
-    let _ = writeln!(w, "  {} {} https://secrt.ca/s/abc#v1.key", c(CMD, "secrt"), c(CMD, "claim"));
+    let _ = writeln!(
+        w,
+        "  {} {} https://secrt.ca/s/abc#v1.key",
+        c(CMD, "secrt"),
+        c(CMD, "claim")
+    );
 }
 
 pub fn print_burn_help(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
     let w = &mut deps.stderr;
-    let _ = writeln!(w, "{} {} — Destroy a secret (requires API key)\n", c(CMD, "secrt"), c(CMD, "burn"));
-    let _ = writeln!(w, "{}\n  {} {} {} {}\n", c(HEADING, "USAGE"), c(CMD, "secrt"), c(CMD, "burn"), c(ARG, "<id-or-url>"), c(ARG, "[options]"));
+    let _ = writeln!(
+        w,
+        "{} {} — Destroy a secret (requires API key)\n",
+        c(CMD, "secrt"),
+        c(CMD, "burn")
+    );
+    let _ = writeln!(
+        w,
+        "{}\n  {} {} {} {}\n",
+        c(HEADING, "USAGE"),
+        c(CMD, "secrt"),
+        c(CMD, "burn"),
+        c(ARG, "<id-or-url>"),
+        c(ARG, "[options]")
+    );
     let _ = writeln!(w, "{}", c(HEADING, "OPTIONS"));
-    write_option_rows(w, &c, &[
-        ("--api-key",  "<key>", "API key (required)"),
-        ("--base-url", "<url>", "Server URL"),
-        ("--json",     "",      "Output as JSON"),
-        ("--silent",   "",      "Suppress status output"),
-        ("-h, --help", "",      "Show help"),
-    ]);
+    write_option_rows(
+        w,
+        &c,
+        &[
+            ("--api-key", "<key>", "API key (required)"),
+            ("--base-url", "<url>", "Server URL"),
+            ("--json", "", "Output as JSON"),
+            ("--silent", "", "Suppress status output"),
+            ("-h, --help", "", "Show help"),
+        ],
+    );
     let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
-    let _ = writeln!(w, "  {} {} test-id {} sk_prefix.secret", c(CMD, "secrt"), c(CMD, "burn"), c(OPT, "--api-key"));
+    let _ = writeln!(
+        w,
+        "  {} {} test-id {} sk_prefix.secret",
+        c(CMD, "secrt"),
+        c(CMD, "burn"),
+        c(OPT, "--api-key")
+    );
+}
+
+pub fn print_gen_help(deps: &mut Deps) {
+    let c = color_func((deps.is_stdout_tty)());
+    let w = &mut deps.stderr;
+    let _ = writeln!(
+        w,
+        "{} {} — Generate a random password\n",
+        c(CMD, "secrt"),
+        c(CMD, "gen")
+    );
+    let _ = writeln!(
+        w,
+        "{}\n  {} {} {}\n",
+        c(HEADING, "USAGE"),
+        c(CMD, "secrt"),
+        c(CMD, "gen"),
+        c(ARG, "[options]")
+    );
+    let _ = writeln!(w, "{}", c(HEADING, "OPTIONS"));
+    write_option_rows(
+        w,
+        &c,
+        &[
+            ("-L, --length", "<n>", "Password length (default: 20)"),
+            ("-S, --no-symbols", "", "Exclude symbols"),
+            ("-N, --no-numbers", "", "Exclude digits"),
+            ("-C, --no-caps", "", "Exclude uppercase letters"),
+            ("-G, --grouped", "", "Group characters by type"),
+            ("--count", "<n>", "Generate multiple passwords"),
+            ("--json", "", "Output as JSON"),
+            ("-h, --help", "", "Show help"),
+        ],
+    );
+    let _ = writeln!(w, "\n{}", c(HEADING, "CHARACTER SETS"));
+    let _ = writeln!(w, "  Lowercase: a-z  (always included)");
+    let _ = writeln!(w, "  Uppercase: A-Z");
+    let _ = writeln!(w, "  Digits:    0-9");
+    let _ = writeln!(w, "  Symbols:   !@*^_+-=?");
+    let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
+    let _ = writeln!(
+        w,
+        "  {} {}                 20-char password, all classes",
+        c(CMD, "secrt"),
+        c(CMD, "gen")
+    );
+    let _ = writeln!(
+        w,
+        "  {} {} {} 32          32-char password",
+        c(CMD, "secrt"),
+        c(CMD, "gen"),
+        c(OPT, "-L")
+    );
+    let _ = writeln!(
+        w,
+        "  {} {} {}              no symbols",
+        c(CMD, "secrt"),
+        c(CMD, "gen"),
+        c(OPT, "-S")
+    );
+    let _ = writeln!(
+        w,
+        "  {} {} {}              grouped by char type",
+        c(CMD, "secrt"),
+        c(CMD, "gen"),
+        c(OPT, "-G")
+    );
+    let _ = writeln!(
+        w,
+        "  {} {} {} 5    five passwords",
+        c(CMD, "secrt"),
+        c(CMD, "gen"),
+        c(OPT, "--count")
+    );
 }
 
 pub fn print_config_help(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
     let w = &mut deps.stderr;
-    let _ = writeln!(w, "{} {} — Show config / init / path\n", c(CMD, "secrt"), c(CMD, "config"));
+    let _ = writeln!(
+        w,
+        "{} {} — Show config / init / path\n",
+        c(CMD, "secrt"),
+        c(CMD, "config")
+    );
     let _ = writeln!(w, "{}", c(HEADING, "SUBCOMMANDS"));
-    write_cmd_rows(w, &c, &[
-        ("secrt config",                   "Show effective config and file path"),
-        ("secrt config init",              "Create template config file"),
-        ("secrt config path",              "Print config file path"),
-        ("secrt config set-passphrase",    "Store passphrase in OS keychain"),
-        ("secrt config delete-passphrase", "Remove passphrase from OS keychain"),
-    ]);
+    write_cmd_rows(
+        w,
+        &c,
+        &[
+            ("secrt config", "Show effective config and file path"),
+            ("secrt config init", "Create template config file"),
+            ("secrt config path", "Print config file path"),
+            (
+                "secrt config set-passphrase",
+                "Store passphrase in OS keychain",
+            ),
+            (
+                "secrt config delete-passphrase",
+                "Remove passphrase from OS keychain",
+            ),
+        ],
+    );
     let _ = writeln!(w, "\n{}", c(HEADING, "OPTIONS"));
-    write_option_rows(w, &c, &[
-        ("--force",    "", "Overwrite existing config file (for init)"),
-        ("-h, --help", "", "Show help"),
-    ]);
+    write_option_rows(
+        w,
+        &c,
+        &[
+            ("--force", "", "Overwrite existing config file (for init)"),
+            ("-h, --help", "", "Show help"),
+        ],
+    );
     let _ = writeln!(w, "\n{}", c(HEADING, "CONFIG"));
     let _ = writeln!(w, "  Settings are loaded from ~/.config/secrt/config.toml.");
-    let _ = writeln!(w, "  Supported keys: api_key, base_url, default_ttl, passphrase,");
+    let _ = writeln!(
+        w,
+        "  Supported keys: api_key, base_url, default_ttl, passphrase,"
+    );
     let _ = writeln!(w, "  decryption_passphrases, show_input.");
-    let _ = writeln!(w, "  Precedence: CLI flag > env var > config file > default.");
+    let _ = writeln!(
+        w,
+        "  Precedence: CLI flag > env var > config file > default."
+    );
 }
 
 #[cfg(test)]
@@ -1274,6 +1562,38 @@ mod tests {
         assert_eq!(pa.text, "hello");
     }
 
+    // --- short flag -Xvalue tests ---
+
+    #[test]
+    fn flags_short_concat_value() {
+        let pa = parse_flags(&s(&["-L20"])).unwrap();
+        assert_eq!(pa.gen_length, 20);
+    }
+
+    #[test]
+    fn flags_short_eq_value() {
+        let pa = parse_flags(&s(&["-L=20"])).unwrap();
+        assert_eq!(pa.gen_length, 20);
+    }
+
+    #[test]
+    fn flags_short_concat_file() {
+        let pa = parse_flags(&s(&["-f/tmp/secret.txt"])).unwrap();
+        assert_eq!(pa.file, "/tmp/secret.txt");
+    }
+
+    #[test]
+    fn flags_short_eq_file() {
+        let pa = parse_flags(&s(&["-f=/tmp/secret.txt"])).unwrap();
+        assert_eq!(pa.file, "/tmp/secret.txt");
+    }
+
+    #[test]
+    fn flags_short_concat_output() {
+        let pa = parse_flags(&s(&["-oout.txt"])).unwrap();
+        assert_eq!(pa.output, "out.txt");
+    }
+
     // --- `--` end-of-flags tests ---
 
     #[test]
@@ -1347,14 +1667,30 @@ mod tests {
         // Claim flags
         ("-o", true, &["claim"]),
         ("--output", true, &["claim"]),
+        // Gen flags
+        ("-L", true, &["gen"]),
+        ("--length", true, &["gen"]),
+        ("-S", false, &["gen"]),
+        ("--no-symbols", false, &["gen"]),
+        ("-N", false, &["gen"]),
+        ("--no-numbers", false, &["gen"]),
+        ("-C", false, &["gen"]),
+        ("--no-caps", false, &["gen"]),
+        ("-G", false, &["gen"]),
+        ("--grouped", false, &["gen"]),
+        ("--count", true, &["gen"]),
     ];
 
     /// parse_flags must accept every flag in the registry without error.
     #[test]
     fn registry_flags_accepted_by_parser() {
         for &(flag, needs_value, _) in FLAG_REGISTRY {
+            let test_val = match flag {
+                "--length" | "-L" | "--count" => "10",
+                _ => "test_val",
+            };
             let args = if needs_value {
-                s(&[flag, "test_val"])
+                s(&[flag, test_val])
             } else {
                 s(&[flag])
             };
@@ -1415,6 +1751,7 @@ mod tests {
             ("create", capture_help(print_create_help)),
             ("claim", capture_help(print_claim_help)),
             ("burn", capture_help(print_burn_help)),
+            ("gen", capture_help(print_gen_help)),
         ]
         .into_iter()
         .collect();

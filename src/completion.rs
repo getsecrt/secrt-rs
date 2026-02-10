@@ -3,7 +3,7 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="create claim burn config version help completion"
+    commands="create claim burn gen generate config version help completion"
 
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=($(compgen -W "${commands}" -- "${cur}"))
@@ -19,6 +19,9 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
             ;;
         burn)
             COMPREPLY=($(compgen -W "--api-key --base-url --json --silent --help" -- "${cur}"))
+            ;;
+        gen|generate)
+            COMPREPLY=($(compgen -W "--length --no-symbols --no-numbers --no-caps --grouped --count --json --help" -- "${cur}"))
             ;;
         config)
             COMPREPLY=($(compgen -W "init path set-passphrase delete-passphrase --force" -- "${cur}"))
@@ -40,6 +43,8 @@ _secrt() {
         'create:Encrypt and upload a secret'
         'claim:Retrieve and decrypt a secret'
         'burn:Destroy a secret (requires API key)'
+        'gen:Generate a random password'
+        'generate:Generate a random password'
         'config:Show config / init / path'
         'version:Show version'
         'help:Show help'
@@ -93,6 +98,17 @@ _secrt() {
                         '--silent[Suppress status output]' \
                         '--help[Show help]'
                     ;;
+                gen|generate)
+                    _arguments \
+                        {-L,--length}'[Password length]:length:' \
+                        {-S,--no-symbols}'[Exclude symbols]' \
+                        {-N,--no-numbers}'[Exclude digits]' \
+                        {-C,--no-caps}'[Exclude uppercase letters]' \
+                        {-G,--grouped}'[Group characters by type]' \
+                        '--count[Generate multiple passwords]:count:' \
+                        '--json[Output as JSON]' \
+                        '--help[Show help]'
+                    ;;
                 config)
                     _arguments \
                         '1:subcommand:(init path set-passphrase delete-passphrase)' \
@@ -113,6 +129,8 @@ pub const FISH_COMPLETION: &str = r#"complete -c secrt -f
 complete -c secrt -n '__fish_use_subcommand' -a create -d 'Encrypt and upload a secret'
 complete -c secrt -n '__fish_use_subcommand' -a claim -d 'Retrieve and decrypt a secret'
 complete -c secrt -n '__fish_use_subcommand' -a burn -d 'Destroy a secret (requires API key)'
+complete -c secrt -n '__fish_use_subcommand' -a gen -d 'Generate a random password'
+complete -c secrt -n '__fish_use_subcommand' -a generate -d 'Generate a random password'
 complete -c secrt -n '__fish_use_subcommand' -a config -d 'Show config / init / path'
 complete -c secrt -n '__fish_use_subcommand' -a version -d 'Show version'
 complete -c secrt -n '__fish_use_subcommand' -a help -d 'Show help'
@@ -145,6 +163,14 @@ complete -c secrt -n '__fish_seen_subcommand_from burn' -l api-key -d 'API key'
 complete -c secrt -n '__fish_seen_subcommand_from burn' -l base-url -d 'Server URL'
 complete -c secrt -n '__fish_seen_subcommand_from burn' -l json -d 'Output as JSON'
 complete -c secrt -n '__fish_seen_subcommand_from burn' -l silent -d 'Suppress status output'
+
+complete -c secrt -n '__fish_seen_subcommand_from gen generate' -s L -l length -d 'Password length'
+complete -c secrt -n '__fish_seen_subcommand_from gen generate' -s S -l no-symbols -d 'Exclude symbols'
+complete -c secrt -n '__fish_seen_subcommand_from gen generate' -s N -l no-numbers -d 'Exclude digits'
+complete -c secrt -n '__fish_seen_subcommand_from gen generate' -s C -l no-caps -d 'Exclude uppercase letters'
+complete -c secrt -n '__fish_seen_subcommand_from gen generate' -s G -l grouped -d 'Group characters by type'
+complete -c secrt -n '__fish_seen_subcommand_from gen generate' -l count -d 'Generate multiple passwords'
+complete -c secrt -n '__fish_seen_subcommand_from gen generate' -l json -d 'Output as JSON'
 
 complete -c secrt -n '__fish_seen_subcommand_from config' -a 'init path set-passphrase delete-passphrase' -d 'Config subcommand'
 complete -c secrt -n '__fish_seen_subcommand_from config' -l force -d 'Overwrite existing config file'

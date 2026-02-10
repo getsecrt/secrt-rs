@@ -328,7 +328,9 @@ mod tests {
         pa.passphrase_prompt = true;
         let err = resolve_passphrase(&pa, &mut deps);
         assert!(err.is_err());
-        assert!(err.unwrap_err().contains("--no-passphrase cannot be combined"));
+        assert!(err
+            .unwrap_err()
+            .contains("--no-passphrase cannot be combined"));
     }
 
     #[test]
@@ -339,7 +341,9 @@ mod tests {
         pa.passphrase_env = "MY_VAR".into();
         let err = resolve_passphrase(&pa, &mut deps);
         assert!(err.is_err());
-        assert!(err.unwrap_err().contains("--no-passphrase cannot be combined"));
+        assert!(err
+            .unwrap_err()
+            .contains("--no-passphrase cannot be combined"));
     }
 
     // --- resolve_passphrase_for_create tests ---
@@ -410,7 +414,9 @@ mod tests {
         pa.passphrase_prompt = true;
         let err = resolve_passphrase_for_create(&pa, &mut deps);
         assert!(err.is_err());
-        assert!(err.unwrap_err().contains("--no-passphrase cannot be combined"));
+        assert!(err
+            .unwrap_err()
+            .contains("--no-passphrase cannot be combined"));
     }
 
     // --- write_error tests ---
