@@ -826,3 +826,37 @@ fn claim_passphrase_list_deduplication() {
     assert_eq!(stdout.to_string(), "dedup test");
     let _ = fs::remove_dir_all(&cfg_dir);
 }
+
+#[test]
+fn claim_implicit_from_share_url() {
+    let plaintext = b"implicit claim works";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
+    // No "claim" subcommand — just secrt <url>
+    let code = cli::run(&args(&["secrt", &share_link]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(stdout.to_string(), "implicit claim works");
+}
+
+#[test]
+fn claim_implicit_with_flags() {
+    let plaintext = b"implicit with json";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
+    // Implicit claim with --json flag
+    let code = cli::run(&args(&["secrt", &share_link, "--json"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert!(
+        stdout.to_string().contains("\"plaintext\""),
+        "stdout: {}",
+        stdout.to_string()
+    );
+}

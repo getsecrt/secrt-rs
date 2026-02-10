@@ -109,6 +109,10 @@ pub fn run(args: &[String], deps: &mut Deps) -> i32 {
         "create" => run_create(remaining, deps),
         "claim" => run_claim(remaining, deps),
         "burn" => run_burn(remaining, deps),
+        _ if command.contains("#v1.") => {
+            // Implicit claim: treat share URLs/bare IDs as `secrt claim <url>`
+            run_claim(&args[1..], deps)
+        }
         _ => {
             let _ = writeln!(deps.stderr, "error: unknown command {:?}", command);
             print_usage(deps);
