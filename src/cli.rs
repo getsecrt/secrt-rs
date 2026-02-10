@@ -180,78 +180,69 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
+
+        // `--` stops flag parsing; everything after is positional
+        if arg == "--" {
+            positional.extend_from_slice(&args[i + 1..]);
+            break;
+        }
+
         if !arg.starts_with('-') {
             positional.push(arg.clone());
             i += 1;
             continue;
         }
 
-        match arg.as_str() {
+        // Support --flag=value syntax: split on first '=' for long flags
+        let (flag, inline_val) = if arg.starts_with("--") {
+            if let Some(eq) = arg.find('=') {
+                (&arg[..eq], Some(arg[eq + 1..].to_string()))
+            } else {
+                (arg.as_str(), None)
+            }
+        } else {
+            (arg.as_str(), None)
+        };
+
+        /// Read the value for a flag that requires one, preferring an inline
+        /// `--flag=value` if present, otherwise consuming the next argument.
+        macro_rules! next_val {
+            ($flag_name:expr) => {{
+                if let Some(ref v) = inline_val {
+                    v.clone()
+                } else {
+                    i += 1;
+                    if i >= args.len() {
+                        return Err(CliError::Error(format!(
+                            "{} requires a value",
+                            $flag_name
+                        )));
+                    }
+                    args[i].clone()
+                }
+            }};
+        }
+
+        match flag {
             "--help" | "-h" => return Err(CliError::ShowHelp),
             "--json" => pa.json = true,
             "--base-url" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(CliError::Error("--base-url requires a value".into()));
-                }
-                pa.base_url = args[i].clone();
+                pa.base_url = next_val!("--base-url");
                 pa.base_url_from_flag = true;
             }
-            "--api-key" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(CliError::Error("--api-key requires a value".into()));
-                }
-                pa.api_key = args[i].clone();
-            }
-            "--ttl" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(CliError::Error("--ttl requires a value".into()));
-                }
-                pa.ttl = args[i].clone();
-            }
-            "--text" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(CliError::Error("--text requires a value".into()));
-                }
-                pa.text = args[i].clone();
-            }
-            "--file" | "-f" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(CliError::Error("-f/--file requires a value".into()));
-                }
-                pa.file = args[i].clone();
-            }
+            "--api-key" => pa.api_key = next_val!("--api-key"),
+            "--ttl" => pa.ttl = next_val!("--ttl"),
+            "--text" => pa.text = next_val!("--text"),
+            "--file" | "-f" => pa.file = next_val!("-f/--file"),
             "--multi-line" | "-m" => pa.multi_line = true,
             "--trim" => pa.trim = true,
             "--show" | "-s" => pa.show = true,
             "--hidden" => pa.hidden = true,
             "--silent" => pa.silent = true,
-            "--output" | "-o" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(CliError::Error("--output requires a value".into()));
-                }
-                pa.output = args[i].clone();
-            }
+            "--output" | "-o" => pa.output = next_val!("--output"),
             "--passphrase-prompt" | "-p" => pa.passphrase_prompt = true,
-            "--passphrase-env" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(CliError::Error("--passphrase-env requires a value".into()));
-                }
-                pa.passphrase_env = args[i].clone();
-            }
-            "--passphrase-file" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(CliError::Error("--passphrase-file requires a value".into()));
-                }
-                pa.passphrase_file = args[i].clone();
-            }
+            "--passphrase-env" => pa.passphrase_env = next_val!("--passphrase-env"),
+            "--passphrase-file" => pa.passphrase_file = next_val!("--passphrase-file"),
             _ => return Err(CliError::Error(format!("unknown flag: {}", arg))),
         }
         i += 1;
@@ -794,6 +785,42 @@ fn run_config_show(deps: &mut Deps) -> i32 {
     0
 }
 
+// --- Help text formatting ---
+
+use crate::color::ColorFn;
+
+/// Write auto-aligned option rows:  flag [arg]   description
+fn write_option_rows(w: &mut dyn Write, c: &ColorFn, rows: &[(&str, &str, &str)]) {
+    let widths: Vec<usize> = rows
+        .iter()
+        .map(|(f, a, _)| {
+            if a.is_empty() {
+                f.len()
+            } else {
+                f.len() + 1 + a.len()
+            }
+        })
+        .collect();
+    let max = widths.iter().copied().max().unwrap_or(0);
+    for (i, (flags, arg, desc)) in rows.iter().enumerate() {
+        let pad = max - widths[i] + 2;
+        if arg.is_empty() {
+            let _ = writeln!(w, "  {}{:pad$}{}", c(OPT, flags), "", desc);
+        } else {
+            let _ = writeln!(w, "  {} {}{:pad$}{}", c(OPT, flags), c(ARG, arg), "", desc);
+        }
+    }
+}
+
+/// Write auto-aligned command rows:  command   description
+fn write_cmd_rows(w: &mut dyn Write, c: &ColorFn, rows: &[(&str, &str)]) {
+    let max = rows.iter().map(|(cmd, _)| cmd.len()).max().unwrap_or(0);
+    for (cmd, desc) in rows {
+        let pad = max - cmd.len() + 2;
+        let _ = writeln!(w, "  {}{:pad$}{}", c(CMD, cmd), "", desc);
+    }
+}
+
 // --- Help text ---
 
 fn print_usage(deps: &mut Deps) {
@@ -811,261 +838,133 @@ fn print_usage(deps: &mut Deps) {
 
 pub fn print_help(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
-    let _ = write!(
-        deps.stderr,
-        "{} — one-time secret sharing\n\n\
-{}\n  {} {} {}\n\n\
-{}\n\
-  {}            Encrypt and upload a secret\n\
-  {}             Retrieve and decrypt a secret\n\
-  {}              Destroy a secret (requires API key)\n\
-  {}            Show config / init / path\n\
-  {}           Show version\n\
-  {}              Show this help\n\
-  {}        Output shell completion script\n\n\
-{}\n\
-  {} {}          Server URL (default: https://secrt.ca)\n\
-  {} {}           API key for authenticated access\n\
-  {}                    Output as JSON\n\
-  {}                  Suppress status output\n\
-  {}                Show help\n\
-  {}             Show version\n\n\
-{}\n\
-  echo \"pw123\" | {} {}\n\
-  {} https://secrt.ca/s/abc#v1.key\n\n\
-{}\n\
-  {} {}     Create template config file\n\
-  {}               Print config file path\n\
-  Settings are loaded from {}.\n\
-  Supported keys: api_key, base_url, default_ttl, passphrase,\n\
-  decryption_passphrases, show_input.\n\
-  Precedence: CLI flag > env var > config file > default.\n",
-        c(CMD, "secrt"),
-        c(HEADING, "USAGE"),
-        c(CMD, "secrt"),
-        c(CMD, "<command>"),
-        c(ARG, "[options]"),
-        c(HEADING, "COMMANDS"),
-        c(CMD, "create"),
-        c(CMD, "claim"),
-        c(CMD, "burn"),
-        c(CMD, "config"),
-        c(CMD, "version"),
-        c(CMD, "help"),
-        c(CMD, "completion"),
-        c(HEADING, "GLOBAL OPTIONS"),
-        c(OPT, "--base-url"),
-        c(ARG, "<url>"),
-        c(OPT, "--api-key"),
-        c(ARG, "<key>"),
-        c(OPT, "--json"),
-        c(OPT, "--silent"),
-        c(OPT, "-h, --help"),
-        c(OPT, "-v, --version"),
-        c(HEADING, "EXAMPLES"),
-        c(CMD, "secrt"),
-        c(CMD, "create"),
-        c(CMD, "secrt claim"),
-        c(HEADING, "CONFIG"),
-        c(CMD, "config init"),
-        c(OPT, "[--force]"),
-        c(CMD, "config path"),
-        c(DIM, "~/.config/secrt/config.toml"),
-    );
+    let w = &mut deps.stderr;
+    let _ = writeln!(w, "{} — one-time secret sharing\n", c(CMD, "secrt"));
+    let _ = writeln!(w, "{}\n  {} {} {}\n", c(HEADING, "USAGE"), c(CMD, "secrt"), c(CMD, "<command>"), c(ARG, "[options]"));
+    let _ = writeln!(w, "{}", c(HEADING, "COMMANDS"));
+    write_cmd_rows(w, &c, &[
+        ("create",     "Encrypt and upload a secret"),
+        ("claim",      "Retrieve and decrypt a secret"),
+        ("burn",       "Destroy a secret (requires API key)"),
+        ("config",     "Show config / init / path"),
+        ("version",    "Show version"),
+        ("help",       "Show this help"),
+        ("completion", "Output shell completion script"),
+    ]);
+    let _ = writeln!(w, "\n{}", c(HEADING, "GLOBAL OPTIONS"));
+    write_option_rows(w, &c, &[
+        ("--base-url",    "<url>", "Server URL (default: https://secrt.ca)"),
+        ("--api-key",     "<key>", "API key for authenticated access"),
+        ("--json",        "",      "Output as JSON"),
+        ("--silent",      "",      "Suppress status output"),
+        ("-h, --help",    "",      "Show help"),
+        ("-v, --version", "",      "Show version"),
+    ]);
+    let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
+    let _ = writeln!(w, "  echo \"pw123\" | {} {}", c(CMD, "secrt"), c(CMD, "create"));
+    let _ = writeln!(w, "  {} https://secrt.ca/s/abc#v1.key", c(CMD, "secrt claim"));
+    let _ = writeln!(w, "\n{}", c(HEADING, "CONFIG"));
+    write_cmd_rows(w, &c, &[
+        ("config init [--force]", "Create template config file"),
+        ("config path",           "Print config file path"),
+    ]);
+    let _ = writeln!(w, "  Settings are loaded from {}.", c(DIM, "~/.config/secrt/config.toml"));
+    let _ = writeln!(w, "  Supported keys: api_key, base_url, default_ttl, passphrase,");
+    let _ = writeln!(w, "  decryption_passphrases, show_input.");
+    let _ = writeln!(w, "  Precedence: CLI flag > env var > config file > default.");
 }
 
 pub fn print_create_help(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
-    let _ = write!(
-        deps.stderr,
-        "{} {} — Encrypt and upload a secret\n\n\
-{}\n  {} {} {}\n\n\
-{}\n\
-  {} {}                   TTL for the secret (e.g., 5m, 2h, 1d)\n\
-  {} {}                Secret text (visible in shell history)\n\
-  {} {}             Read secret from a file\n\
-  {}              Multi-line input (read until Ctrl+D)\n\
-  {}                        Trim leading/trailing whitespace\n\
-  {}                    Show input as you type\n\
-  {}                      Hide input (default, overrides --show)\n\
-  {}       Prompt for passphrase\n\
-  {} {}       Read passphrase from env var\n\
-  {} {}      Read passphrase from file\n\
-  {} {}              Server URL\n\
-  {} {}               API key\n\
-  {}                        Output as JSON\n\
-  {}                      Suppress status output\n\
-  {}                    Show help\n\n\
-{}\n\
-  Interactive: single-line hidden input (like a password).\n\
-  Use {} for multi-line input, {} or {} for alternatives.\n\
-  Set show_input = true in config to show input by default.\n\n\
-{}\n\
-  echo \"secret\" | {} {}\n\
-  {} {} {} \"my secret\" {} 5m\n",
-        c(CMD, "secrt"),
-        c(CMD, "create"),
-        c(HEADING, "USAGE"),
-        c(CMD, "secrt"),
-        c(CMD, "create"),
-        c(ARG, "[options]"),
-        c(HEADING, "OPTIONS"),
-        c(OPT, "--ttl"),
-        c(ARG, "<ttl>"),
-        c(OPT, "--text"),
-        c(ARG, "<value>"),
-        c(OPT, "-f, --file"),
-        c(ARG, "<path>"),
-        c(OPT, "-m, --multi-line"),
-        c(OPT, "--trim"),
-        c(OPT, "-s, --show"),
-        c(OPT, "--hidden"),
-        c(OPT, "-p, --passphrase-prompt"),
-        c(OPT, "--passphrase-env"),
-        c(ARG, "<name>"),
-        c(OPT, "--passphrase-file"),
-        c(ARG, "<path>"),
-        c(OPT, "--base-url"),
-        c(ARG, "<url>"),
-        c(OPT, "--api-key"),
-        c(ARG, "<key>"),
-        c(OPT, "--json"),
-        c(OPT, "--silent"),
-        c(OPT, "-h, --help"),
-        c(HEADING, "INPUT"),
-        c(OPT, "-m"),
-        c(OPT, "--text"),
-        c(OPT, "-f/--file"),
-        c(HEADING, "EXAMPLES"),
-        c(CMD, "secrt"),
-        c(CMD, "create"),
-        c(CMD, "secrt"),
-        c(CMD, "create"),
-        c(OPT, "--text"),
-        c(OPT, "--ttl"),
-    );
+    let w = &mut deps.stderr;
+    let _ = writeln!(w, "{} {} — Encrypt and upload a secret\n", c(CMD, "secrt"), c(CMD, "create"));
+    let _ = writeln!(w, "{}\n  {} {} {}\n", c(HEADING, "USAGE"), c(CMD, "secrt"), c(CMD, "create"), c(ARG, "[options]"));
+    let _ = writeln!(w, "{}", c(HEADING, "OPTIONS"));
+    write_option_rows(w, &c, &[
+        ("--ttl",                   "<ttl>",   "TTL for the secret (e.g., 5m, 2h, 1d)"),
+        ("--text",                  "<value>", "Secret text (visible in shell history)"),
+        ("-f, --file",              "<path>",  "Read secret from a file"),
+        ("-m, --multi-line",        "",        "Multi-line input (read until Ctrl+D)"),
+        ("--trim",                  "",        "Trim leading/trailing whitespace"),
+        ("-s, --show",              "",        "Show input as you type"),
+        ("--hidden",                "",        "Hide input (default, overrides --show)"),
+        ("-p, --passphrase-prompt", "",        "Prompt for passphrase"),
+        ("--passphrase-env",        "<name>",  "Read passphrase from env var"),
+        ("--passphrase-file",       "<path>",  "Read passphrase from file"),
+        ("--base-url",              "<url>",   "Server URL"),
+        ("--api-key",               "<key>",   "API key"),
+        ("--json",                  "",        "Output as JSON"),
+        ("--silent",                "",        "Suppress status output"),
+        ("-h, --help",              "",        "Show help"),
+    ]);
+    let _ = writeln!(w, "\n{}", c(HEADING, "INPUT"));
+    let _ = writeln!(w, "  Interactive: single-line hidden input (like a password).");
+    let _ = writeln!(w, "  Use {} for multi-line input, {} or {} for alternatives.", c(OPT, "-m"), c(OPT, "--text"), c(OPT, "-f/--file"));
+    let _ = writeln!(w, "  Set show_input = true in config to show input by default.");
+    let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
+    let _ = writeln!(w, "  echo \"secret\" | {} {}", c(CMD, "secrt"), c(CMD, "create"));
+    let _ = writeln!(w, "  {} {} {} \"my secret\" {} 5m", c(CMD, "secrt"), c(CMD, "create"), c(OPT, "--text"), c(OPT, "--ttl"));
 }
 
 pub fn print_claim_help(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
-    let _ = write!(
-        deps.stderr,
-        "{} {} — Retrieve and decrypt a secret\n\n\
-{}\n  {} {} {} {}\n\n\
-{}\n\
-  {} {}          Write output to file (use - for stdout)\n\
-  {}       Prompt for passphrase\n\
-  {} {}       Read passphrase from env var\n\
-  {} {}      Read passphrase from file\n\
-  {} {}              Server URL\n\
-  {}                        Output as JSON\n\
-  {}                      Suppress status output\n\
-  {}                    Show help\n\n\
-{}\n\
-  {} {} https://secrt.ca/s/abc#v1.key\n",
-        c(CMD, "secrt"),
-        c(CMD, "claim"),
-        c(HEADING, "USAGE"),
-        c(CMD, "secrt"),
-        c(CMD, "claim"),
-        c(ARG, "<share-url>"),
-        c(ARG, "[options]"),
-        c(HEADING, "OPTIONS"),
-        c(OPT, "-o, --output"),
-        c(ARG, "<path>"),
-        c(OPT, "-p, --passphrase-prompt"),
-        c(OPT, "--passphrase-env"),
-        c(ARG, "<name>"),
-        c(OPT, "--passphrase-file"),
-        c(ARG, "<path>"),
-        c(OPT, "--base-url"),
-        c(ARG, "<url>"),
-        c(OPT, "--json"),
-        c(OPT, "--silent"),
-        c(OPT, "-h, --help"),
-        c(HEADING, "EXAMPLES"),
-        c(CMD, "secrt"),
-        c(CMD, "claim"),
-    );
+    let w = &mut deps.stderr;
+    let _ = writeln!(w, "{} {} — Retrieve and decrypt a secret\n", c(CMD, "secrt"), c(CMD, "claim"));
+    let _ = writeln!(w, "{}\n  {} {} {} {}\n", c(HEADING, "USAGE"), c(CMD, "secrt"), c(CMD, "claim"), c(ARG, "<share-url>"), c(ARG, "[options]"));
+    let _ = writeln!(w, "{}", c(HEADING, "OPTIONS"));
+    write_option_rows(w, &c, &[
+        ("-o, --output",            "<path>", "Write output to file (use - for stdout)"),
+        ("-p, --passphrase-prompt", "",        "Prompt for passphrase"),
+        ("--passphrase-env",        "<name>",  "Read passphrase from env var"),
+        ("--passphrase-file",       "<path>",  "Read passphrase from file"),
+        ("--base-url",              "<url>",   "Server URL"),
+        ("--json",                  "",        "Output as JSON"),
+        ("--silent",                "",        "Suppress status output"),
+        ("-h, --help",              "",        "Show help"),
+    ]);
+    let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
+    let _ = writeln!(w, "  {} {} https://secrt.ca/s/abc#v1.key", c(CMD, "secrt"), c(CMD, "claim"));
 }
 
 pub fn print_burn_help(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
-    let _ = write!(
-        deps.stderr,
-        "{} {} — Destroy a secret (requires API key)\n\n\
-{}\n  {} {} {} {}\n\n\
-{}\n\
-  {} {}          API key (required)\n\
-  {} {}         Server URL\n\
-  {}                   Output as JSON\n\
-  {}                 Suppress status output\n\
-  {}               Show help\n\n\
-{}\n\
-  {} {} test-id {} sk_prefix.secret\n",
-        c(CMD, "secrt"),
-        c(CMD, "burn"),
-        c(HEADING, "USAGE"),
-        c(CMD, "secrt"),
-        c(CMD, "burn"),
-        c(ARG, "<id-or-url>"),
-        c(ARG, "[options]"),
-        c(HEADING, "OPTIONS"),
-        c(OPT, "--api-key"),
-        c(ARG, "<key>"),
-        c(OPT, "--base-url"),
-        c(ARG, "<url>"),
-        c(OPT, "--json"),
-        c(OPT, "--silent"),
-        c(OPT, "-h, --help"),
-        c(HEADING, "EXAMPLES"),
-        c(CMD, "secrt"),
-        c(CMD, "burn"),
-        c(OPT, "--api-key"),
-    );
+    let w = &mut deps.stderr;
+    let _ = writeln!(w, "{} {} — Destroy a secret (requires API key)\n", c(CMD, "secrt"), c(CMD, "burn"));
+    let _ = writeln!(w, "{}\n  {} {} {} {}\n", c(HEADING, "USAGE"), c(CMD, "secrt"), c(CMD, "burn"), c(ARG, "<id-or-url>"), c(ARG, "[options]"));
+    let _ = writeln!(w, "{}", c(HEADING, "OPTIONS"));
+    write_option_rows(w, &c, &[
+        ("--api-key",  "<key>", "API key (required)"),
+        ("--base-url", "<url>", "Server URL"),
+        ("--json",     "",      "Output as JSON"),
+        ("--silent",   "",      "Suppress status output"),
+        ("-h, --help", "",      "Show help"),
+    ]);
+    let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
+    let _ = writeln!(w, "  {} {} test-id {} sk_prefix.secret", c(CMD, "secrt"), c(CMD, "burn"), c(OPT, "--api-key"));
 }
 
 pub fn print_config_help(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
-    let _ = write!(
-        deps.stderr,
-        "{} {} — Show config / init / path\n\n\
-{}\n\
-  {} {}                    Show effective config and file path\n\
-  {} {} {}               Create template config file\n\
-  {} {} {}               Print config file path\n\
-  {} {} {}     Store passphrase in OS keychain\n\
-  {} {} {}  Remove passphrase from OS keychain\n\n\
-{}\n\
-  {}          Overwrite existing config file (for init)\n\
-  {}       Show help\n\n\
-{}\n\
-  Settings are loaded from ~/.config/secrt/config.toml.\n\
-  Supported keys: api_key, base_url, default_ttl, passphrase,\n\
-  decryption_passphrases, show_input.\n\
-  Precedence: CLI flag > env var > config file > default.\n",
-        c(CMD, "secrt"),
-        c(CMD, "config"),
-        c(HEADING, "SUBCOMMANDS"),
-        c(CMD, "secrt"),
-        c(CMD, "config"),
-        c(CMD, "secrt"),
-        c(CMD, "config"),
-        c(CMD, "init"),
-        c(CMD, "secrt"),
-        c(CMD, "config"),
-        c(CMD, "path"),
-        c(CMD, "secrt"),
-        c(CMD, "config"),
-        c(CMD, "set-passphrase"),
-        c(CMD, "secrt"),
-        c(CMD, "config"),
-        c(CMD, "delete-passphrase"),
-        c(HEADING, "OPTIONS"),
-        c(OPT, "--force"),
-        c(OPT, "-h, --help"),
-        c(HEADING, "CONFIG"),
-    );
+    let w = &mut deps.stderr;
+    let _ = writeln!(w, "{} {} — Show config / init / path\n", c(CMD, "secrt"), c(CMD, "config"));
+    let _ = writeln!(w, "{}", c(HEADING, "SUBCOMMANDS"));
+    write_cmd_rows(w, &c, &[
+        ("secrt config",                   "Show effective config and file path"),
+        ("secrt config init",              "Create template config file"),
+        ("secrt config path",              "Print config file path"),
+        ("secrt config set-passphrase",    "Store passphrase in OS keychain"),
+        ("secrt config delete-passphrase", "Remove passphrase from OS keychain"),
+    ]);
+    let _ = writeln!(w, "\n{}", c(HEADING, "OPTIONS"));
+    write_option_rows(w, &c, &[
+        ("--force",    "", "Overwrite existing config file (for init)"),
+        ("-h, --help", "", "Show help"),
+    ]);
+    let _ = writeln!(w, "\n{}", c(HEADING, "CONFIG"));
+    let _ = writeln!(w, "  Settings are loaded from ~/.config/secrt/config.toml.");
+    let _ = writeln!(w, "  Supported keys: api_key, base_url, default_ttl, passphrase,");
+    let _ = writeln!(w, "  decryption_passphrases, show_input.");
+    let _ = writeln!(w, "  Precedence: CLI flag > env var > config file > default.");
 }
 
 #[cfg(test)]
@@ -1287,6 +1186,232 @@ mod tests {
         assert_eq!(pa.args, vec!["myurl"]);
         assert!(pa.json);
         assert_eq!(pa.ttl, "5m");
+    }
+
+    // --- --flag=value tests ---
+
+    #[test]
+    fn flags_eq_ttl() {
+        let pa = parse_flags(&s(&["--ttl=5m"])).unwrap();
+        assert_eq!(pa.ttl, "5m");
+    }
+
+    #[test]
+    fn flags_eq_base_url() {
+        let pa = parse_flags(&s(&["--base-url=https://example.com"])).unwrap();
+        assert_eq!(pa.base_url, "https://example.com");
+        assert!(pa.base_url_from_flag);
+    }
+
+    #[test]
+    fn flags_eq_api_key() {
+        let pa = parse_flags(&s(&["--api-key=sk_test"])).unwrap();
+        assert_eq!(pa.api_key, "sk_test");
+    }
+
+    #[test]
+    fn flags_eq_text() {
+        let pa = parse_flags(&s(&["--text=hello world"])).unwrap();
+        assert_eq!(pa.text, "hello world");
+    }
+
+    #[test]
+    fn flags_eq_file() {
+        let pa = parse_flags(&s(&["--file=/tmp/secret.txt"])).unwrap();
+        assert_eq!(pa.file, "/tmp/secret.txt");
+    }
+
+    #[test]
+    fn flags_eq_output() {
+        let pa = parse_flags(&s(&["--output=/tmp/out.bin"])).unwrap();
+        assert_eq!(pa.output, "/tmp/out.bin");
+    }
+
+    #[test]
+    fn flags_eq_passphrase_env() {
+        let pa = parse_flags(&s(&["--passphrase-env=MY_PASS"])).unwrap();
+        assert_eq!(pa.passphrase_env, "MY_PASS");
+    }
+
+    #[test]
+    fn flags_eq_passphrase_file() {
+        let pa = parse_flags(&s(&["--passphrase-file=/tmp/pass"])).unwrap();
+        assert_eq!(pa.passphrase_file, "/tmp/pass");
+    }
+
+    #[test]
+    fn flags_eq_empty_value() {
+        let pa = parse_flags(&s(&["--text="])).unwrap();
+        assert_eq!(pa.text, "");
+    }
+
+    #[test]
+    fn flags_eq_value_with_equals() {
+        let pa = parse_flags(&s(&["--text=a=b=c"])).unwrap();
+        assert_eq!(pa.text, "a=b=c");
+    }
+
+    #[test]
+    fn flags_eq_mixed_with_space() {
+        let pa = parse_flags(&s(&["--ttl=5m", "--text", "hello"])).unwrap();
+        assert_eq!(pa.ttl, "5m");
+        assert_eq!(pa.text, "hello");
+    }
+
+    // --- `--` end-of-flags tests ---
+
+    #[test]
+    fn flags_double_dash_stops_flags() {
+        let pa = parse_flags(&s(&["--json", "--", "--not-a-flag"])).unwrap();
+        assert!(pa.json);
+        assert_eq!(pa.args, vec!["--not-a-flag"]);
+    }
+
+    #[test]
+    fn flags_double_dash_all_positional() {
+        let pa = parse_flags(&s(&["--", "-m", "--ttl", "5m"])).unwrap();
+        assert!(!pa.multi_line);
+        assert!(pa.ttl.is_empty());
+        assert_eq!(pa.args, vec!["-m", "--ttl", "5m"]);
+    }
+
+    #[test]
+    fn flags_double_dash_empty() {
+        let pa = parse_flags(&s(&["--"])).unwrap();
+        assert!(pa.args.is_empty());
+    }
+
+    #[test]
+    fn flags_double_dash_preserves_earlier() {
+        let pa = parse_flags(&s(&["--ttl", "1h", "--", "myurl"])).unwrap();
+        assert_eq!(pa.ttl, "1h");
+        assert_eq!(pa.args, vec!["myurl"]);
+    }
+
+    // --- help text drift tests ---
+    //
+    // Every flag accepted by parse_flags() must appear in at least one help
+    // screen. When adding a new flag, add it here too — the parser test
+    // verifies parse_flags accepts it, and the help test verifies it's
+    // documented.
+
+    /// All flags accepted by parse_flags, grouped by which help screen(s)
+    /// must mention them. Each entry is (flag, needs_value, help_fns) where
+    /// help_fns lists which print_*_help functions should contain the flag.
+    ///   "main"   = print_help
+    ///   "create" = print_create_help
+    ///   "claim"  = print_claim_help
+    ///   "burn"   = print_burn_help
+    const FLAG_REGISTRY: &[(&str, bool, &[&str])] = &[
+        // Global flags — should appear in main help
+        ("--base-url", true, &["main", "create", "claim", "burn"]),
+        ("--api-key", true, &["main", "create", "burn"]),
+        ("--json", false, &["main", "create", "claim", "burn"]),
+        ("--silent", false, &["main", "create", "claim", "burn"]),
+        ("-h", false, &["main", "create", "claim", "burn"]),
+        ("--help", false, &["main", "create", "claim", "burn"]),
+        // Create flags
+        ("--ttl", true, &["create"]),
+        ("--text", true, &["create"]),
+        ("--file", true, &["create"]),
+        ("-f", true, &["create"]),
+        ("-m", false, &["create"]),
+        ("--multi-line", false, &["create"]),
+        ("--trim", false, &["create"]),
+        ("-s", false, &["create"]),
+        ("--show", false, &["create"]),
+        ("--hidden", false, &["create"]),
+        // Passphrase flags — create + claim
+        ("-p", false, &["create", "claim"]),
+        ("--passphrase-prompt", false, &["create", "claim"]),
+        ("--passphrase-env", true, &["create", "claim"]),
+        ("--passphrase-file", true, &["create", "claim"]),
+        // Claim flags
+        ("-o", true, &["claim"]),
+        ("--output", true, &["claim"]),
+    ];
+
+    /// parse_flags must accept every flag in the registry without error.
+    #[test]
+    fn registry_flags_accepted_by_parser() {
+        for &(flag, needs_value, _) in FLAG_REGISTRY {
+            let args = if needs_value {
+                s(&[flag, "test_val"])
+            } else {
+                s(&[flag])
+            };
+            let result = parse_flags(&args);
+            // --help / -h returns ShowHelp, which is fine — it's still "accepted"
+            match result {
+                Ok(_) => {}
+                Err(CliError::ShowHelp) => {}
+                Err(CliError::Error(e)) => {
+                    panic!("parse_flags rejected registered flag {}: {}", flag, e);
+                }
+            }
+        }
+    }
+
+    fn capture_help(f: fn(&mut Deps)) -> String {
+        let buf = std::rc::Rc::new(std::cell::RefCell::new(Vec::<u8>::new()));
+        struct Capture(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
+        impl Write for Capture {
+            fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+                self.0.borrow_mut().write(data)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                self.0.borrow_mut().flush()
+            }
+        }
+        let mut deps = Deps {
+            stdin: Box::new(std::io::Cursor::new(Vec::new())),
+            stdout: Box::new(Vec::new()),
+            stderr: Box::new(Capture(std::rc::Rc::clone(&buf))),
+            is_tty: Box::new(|| false),
+            is_stdout_tty: Box::new(|| false),
+            getenv: Box::new(|_: &str| None),
+            rand_bytes: Box::new(|_: &mut [u8]| Ok(())),
+            read_pass: Box::new(|_: &str, _: &mut dyn Write| {
+                Err(io::Error::new(io::ErrorKind::Other, "unused"))
+            }),
+            make_api: Box::new(|base_url: &str, api_key: &str| {
+                Box::new(crate::client::ApiClient {
+                    base_url: base_url.to_string(),
+                    api_key: api_key.to_string(),
+                })
+            }),
+            get_keychain_secret: Box::new(|_: &str| None),
+            get_keychain_secret_list: Box::new(|_: &str| Vec::new()),
+        };
+        f(&mut deps);
+        drop(deps);
+        let bytes = buf.borrow();
+        String::from_utf8_lossy(&bytes).to_string()
+    }
+
+    /// Every flag in the registry must appear in its designated help screen(s).
+    #[test]
+    fn registry_flags_appear_in_help() {
+        let screens: std::collections::HashMap<&str, String> = [
+            ("main", capture_help(print_help)),
+            ("create", capture_help(print_create_help)),
+            ("claim", capture_help(print_claim_help)),
+            ("burn", capture_help(print_burn_help)),
+        ]
+        .into_iter()
+        .collect();
+
+        for &(flag, _, expected_screens) in FLAG_REGISTRY {
+            for &screen in expected_screens {
+                let text = screens.get(screen).unwrap();
+                assert!(
+                    text.contains(flag),
+                    "flag {} not found in {} help text",
+                    flag,
+                    screen,
+                );
+            }
+        }
     }
 
     // --- resolve_globals tests ---
