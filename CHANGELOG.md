@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.1 — 2026-02-09
+
+### Added
+
+- **File handling:** `create --file` now stores file metadata (filename, MIME type) in the envelope `hint` field. On claim, file secrets are automatically saved to disk on TTY, with raw bytes piped when stdout is not a terminal.
+- **`--output` / `-o` flag for `claim`:** Write claimed secret directly to a file path, or use `-o -` to force raw bytes to stdout.
+- **JSON base64 encoding:** `claim --json` outputs `plaintext_base64` (standard base64) instead of lossy UTF-8 for binary files with a file hint.
+- **Implicit claim:** Share URLs are auto-detected as the first argument (`secrt <url>` works without `claim` subcommand).
+
+### Fixed
+
+- `<url>` placeholder in usage text now uses ARG color (dim) instead of OPT color (yellow).
+
 ## 0.1.0 — 2026-02-09
 
 Initial release.

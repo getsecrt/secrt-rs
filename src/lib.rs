@@ -7,5 +7,7 @@ pub mod completion;
 pub mod config;
 pub mod create;
 pub mod envelope;
+pub mod fileutil;
 pub mod keychain;
+pub mod mime;
 pub mod passphrase;

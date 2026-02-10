@@ -62,6 +62,9 @@ pub struct ParsedArgs {
     pub passphrase_env: String,
     pub passphrase_file: String,
 
+    // Claim
+    pub output: String,
+
     // Populated from config file (not from CLI flags)
     pub passphrase_default: String,
     pub show_default: bool,
@@ -227,6 +230,13 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
             "--show" | "-s" => pa.show = true,
             "--hidden" => pa.hidden = true,
             "--silent" => pa.silent = true,
+            "--output" | "-o" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(CliError::Error("--output requires a value".into()));
+                }
+                pa.output = args[i].clone();
+            }
             "--passphrase-prompt" | "-p" => pa.passphrase_prompt = true,
             "--passphrase-env" => {
                 i += 1;
@@ -943,6 +953,7 @@ pub fn print_claim_help(deps: &mut Deps) {
         "{} {} — Retrieve and decrypt a secret\n\n\
 {}\n  {} {} {} {}\n\n\
 {}\n\
+  {} {}          Write output to file (use - for stdout)\n\
   {}       Prompt for passphrase\n\
   {} {}       Read passphrase from env var\n\
   {} {}      Read passphrase from file\n\
@@ -960,6 +971,8 @@ pub fn print_claim_help(deps: &mut Deps) {
         c(ARG, "<share-url>"),
         c(ARG, "[options]"),
         c(HEADING, "OPTIONS"),
+        c(OPT, "-o, --output"),
+        c(ARG, "<path>"),
         c(OPT, "-p, --passphrase-prompt"),
         c(OPT, "--passphrase-env"),
         c(ARG, "<name>"),
@@ -1211,6 +1224,24 @@ mod tests {
     #[test]
     fn flags_missing_value_file() {
         let err = parse_flags(&s(&["--file"]));
+        assert!(matches!(err, Err(CliError::Error(_))));
+    }
+
+    #[test]
+    fn flags_output() {
+        let pa = parse_flags(&s(&["--output", "/tmp/out.bin"])).unwrap();
+        assert_eq!(pa.output, "/tmp/out.bin");
+    }
+
+    #[test]
+    fn flags_output_short() {
+        let pa = parse_flags(&s(&["-o", "out.txt"])).unwrap();
+        assert_eq!(pa.output, "out.txt");
+    }
+
+    #[test]
+    fn flags_missing_value_output() {
+        let err = parse_flags(&s(&["--output"]));
         assert!(matches!(err, Err(CliError::Error(_))));
     }
 

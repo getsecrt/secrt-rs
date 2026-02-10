@@ -2,6 +2,8 @@ mod helpers;
 
 use std::fs;
 
+use std::collections::HashMap;
+
 use helpers::{args, TestDepsBuilder};
 use secrt::cli;
 use secrt::client::ClaimResponse;
@@ -859,4 +861,291 @@ fn claim_implicit_with_flags() {
         "stdout: {}",
         stdout.to_string()
     );
+}
+
+// --- File hint tests ---
+
+/// Seal an envelope with a file hint and return (share_link, seal_result)
+fn seal_test_file(plaintext: &[u8], filename: &str, mime: &str) -> (String, envelope::SealResult) {
+    let mut hint = HashMap::new();
+    hint.insert("type".into(), "file".into());
+    hint.insert("filename".into(), filename.into());
+    hint.insert("mime".into(), mime.into());
+    let result = envelope::seal(SealParams {
+        plaintext: plaintext.to_vec(),
+        passphrase: String::new(),
+        rand_bytes: &real_rand,
+        hint: Some(hint),
+        iterations: 0,
+    })
+    .unwrap();
+    let share_link = envelope::format_share_link(
+        &format!("https://secrt.ca/s/{}", "mock-id"),
+        &result.url_key,
+    );
+    (share_link, result)
+}
+
+#[test]
+fn claim_file_auto_save_on_tty() {
+    let plaintext = b"\x89PNG\r\n\x1a\nfake png data";
+    let (share_link, seal_result) = seal_test_file(plaintext, "photo.png", "image/png");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    // Use a temp dir to avoid polluting CWD
+    let dir = std::env::temp_dir().join(format!(
+        "secrt_test_auto_save_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = fs::create_dir_all(&dir);
+    let orig_dir = std::env::current_dir().unwrap();
+    let _ = std::env::set_current_dir(&dir);
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(true)
+        .is_stdout_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+
+    let _ = std::env::set_current_dir(&orig_dir);
+
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let err = stderr.to_string();
+    assert!(
+        err.contains("Saved to") && err.contains("photo.png"),
+        "should show save message: {}",
+        err
+    );
+
+    // Verify file was written
+    let saved = fs::read(dir.join("photo.png")).expect("file should exist");
+    assert_eq!(saved, plaintext);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn claim_file_output_flag() {
+    let plaintext = b"explicit output path";
+    let (share_link, seal_result) =
+        seal_test_file(plaintext, "data.bin", "application/octet-stream");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let dir = std::env::temp_dir();
+    let out_path = dir.join(format!(
+        "secrt_test_output_{}.bin",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
+    let code = cli::run(
+        &args(&[
+            "secrt",
+            "claim",
+            &share_link,
+            "--output",
+            out_path.to_str().unwrap(),
+        ]),
+        &mut deps,
+    );
+
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let err = stderr.to_string();
+    assert!(
+        err.contains("Saved to"),
+        "should show save message: {}",
+        err
+    );
+
+    let saved = fs::read(&out_path).expect("output file should exist");
+    assert_eq!(saved, plaintext);
+
+    let _ = fs::remove_file(&out_path);
+}
+
+#[test]
+fn claim_file_output_dash_stdout() {
+    let plaintext = b"raw stdout output";
+    let (share_link, seal_result) = seal_test_file(plaintext, "test.txt", "text/plain");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
+    let code = cli::run(
+        &args(&["secrt", "claim", &share_link, "--output", "-"]),
+        &mut deps,
+    );
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    // Raw bytes to stdout, no label, no newline
+    assert_eq!(stdout.0.lock().unwrap().as_slice(), plaintext);
+}
+
+#[test]
+fn claim_file_piped_stdout_raw_bytes() {
+    let plaintext = b"\x00\x01\x02binary\xff\xfe";
+    let (share_link, seal_result) =
+        seal_test_file(plaintext, "data.bin", "application/octet-stream");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .is_stdout_tty(false) // piped
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    // Piped: raw bytes, no label
+    assert_eq!(stdout.0.lock().unwrap().as_slice(), plaintext);
+}
+
+#[test]
+fn claim_file_json_with_hint_utf8() {
+    let plaintext = b"file text content";
+    let (share_link, seal_result) = seal_test_file(plaintext, "notes.txt", "text/plain");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T12:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link, "--json"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+
+    let json: serde_json::Value =
+        serde_json::from_str(stdout.to_string().trim()).expect("valid JSON");
+    assert_eq!(json["plaintext"].as_str().unwrap(), "file text content");
+    assert_eq!(json["filename"].as_str().unwrap(), "notes.txt");
+    assert_eq!(json["mime"].as_str().unwrap(), "text/plain");
+    assert_eq!(json["type"].as_str().unwrap(), "text/plain");
+    assert!(json.get("plaintext_base64").is_none());
+}
+
+#[test]
+fn claim_file_json_with_hint_binary() {
+    let plaintext: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0xFF, 0xFE];
+    let (share_link, seal_result) = seal_test_file(plaintext, "photo.png", "image/png");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T12:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link, "--json"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+
+    let json: serde_json::Value =
+        serde_json::from_str(stdout.to_string().trim()).expect("valid JSON");
+    // Binary + file hint → base64
+    assert!(
+        json.get("plaintext").is_none(),
+        "should not have plaintext key for binary"
+    );
+    let b64 = json["plaintext_base64"].as_str().unwrap();
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+    let decoded = STANDARD.decode(b64).unwrap();
+    assert_eq!(decoded, plaintext);
+    assert_eq!(json["filename"].as_str().unwrap(), "photo.png");
+    assert_eq!(json["mime"].as_str().unwrap(), "image/png");
+}
+
+#[test]
+fn claim_text_no_hint_unchanged_behavior() {
+    // Verify that text secrets without file hints still work exactly as before
+    let plaintext = b"just a text secret";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .is_stdout_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(stdout.to_string(), "just a text secret\n");
+    assert!(
+        stderr.to_string().contains("Secret:"),
+        "should show Secret: label for text on TTY"
+    );
+    assert!(
+        !stderr.to_string().contains("Saved to"),
+        "should NOT save text secrets to file"
+    );
+}
+
+#[test]
+fn claim_output_flag_missing_value() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(&args(&["secrt", "claim", "--output"]), &mut deps);
+    assert_eq!(code, 2);
+    assert!(
+        stderr.to_string().contains("--output requires a value"),
+        "stderr: {}",
+        stderr.to_string()
+    );
+}
+
+#[test]
+fn claim_output_short_flag() {
+    let plaintext = b"short flag test";
+    let (share_link, seal_result) = seal_test_file(plaintext, "test.txt", "text/plain");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, stdout, _stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
+    let code = cli::run(
+        &args(&["secrt", "claim", &share_link, "-o", "-"]),
+        &mut deps,
+    );
+    assert_eq!(code, 0);
+    assert_eq!(stdout.0.lock().unwrap().as_slice(), plaintext);
+}
+
+#[test]
+fn claim_file_output_flag_text_no_hint() {
+    // --output works for text secrets too (no file hint needed)
+    let plaintext = b"save this text";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let dir = std::env::temp_dir();
+    let out_path = dir.join(format!(
+        "secrt_test_text_output_{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
+    let code = cli::run(
+        &args(&[
+            "secrt",
+            "claim",
+            &share_link,
+            "--output",
+            out_path.to_str().unwrap(),
+        ]),
+        &mut deps,
+    );
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let saved = fs::read(&out_path).expect("output file should exist");
+    assert_eq!(saved, plaintext);
+    let _ = fs::remove_file(&out_path);
 }

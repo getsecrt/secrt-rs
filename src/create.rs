@@ -69,12 +69,19 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
     };
     let has_passphrase = !passphrase.is_empty();
 
+    // Build file hint when encrypting a file
+    let hint = if !pa.file.is_empty() {
+        crate::fileutil::build_file_hint(&pa.file)
+    } else {
+        None
+    };
+
     // Seal envelope
     let result = envelope::seal(SealParams {
         plaintext,
         passphrase,
         rand_bytes: &*deps.rand_bytes,
-        hint: None,
+        hint,
         iterations: 0,
     });
 

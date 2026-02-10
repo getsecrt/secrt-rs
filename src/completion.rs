@@ -15,7 +15,7 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
             COMPREPLY=($(compgen -W "--ttl --api-key --base-url --json --text --file --show --hidden --silent --multi-line --trim --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
             ;;
         claim)
-            COMPREPLY=($(compgen -W "--base-url --json --silent --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
+            COMPREPLY=($(compgen -W "--output --base-url --json --silent --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
             ;;
         burn)
             COMPREPLY=($(compgen -W "--api-key --base-url --json --silent --help" -- "${cur}"))
@@ -76,6 +76,7 @@ _secrt() {
                     ;;
                 claim)
                     _arguments \
+                        {-o,--output}'[Write output to file (- for stdout)]:path:_files' \
                         '--base-url[Server URL]:url:' \
                         '--json[Output as JSON]' \
                         '--silent[Suppress status output]' \
@@ -132,6 +133,7 @@ complete -c secrt -n '__fish_seen_subcommand_from create' -s p -l passphrase-pro
 complete -c secrt -n '__fish_seen_subcommand_from create' -l passphrase-env -d 'Passphrase env var'
 complete -c secrt -n '__fish_seen_subcommand_from create' -l passphrase-file -d 'Passphrase file' -F
 
+complete -c secrt -n '__fish_seen_subcommand_from claim' -s o -l output -d 'Write output to file (- for stdout)' -F
 complete -c secrt -n '__fish_seen_subcommand_from claim' -l base-url -d 'Server URL'
 complete -c secrt -n '__fish_seen_subcommand_from claim' -l json -d 'Output as JSON'
 complete -c secrt -n '__fish_seen_subcommand_from claim' -l silent -d 'Suppress status output'
