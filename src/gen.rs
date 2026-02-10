@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use crate::cli::{parse_flags, print_gen_help, CliError, Deps};
+use crate::cli::{parse_flags, print_gen_help, CliError, Deps, ParsedArgs};
 use crate::envelope::EnvelopeError;
 use crate::passphrase::write_error;
 
@@ -22,48 +22,31 @@ pub fn run_gen(args: &[String], deps: &mut Deps) -> i32 {
         }
     };
 
-    let length = if pa.gen_length == 0 {
-        20
-    } else {
-        pa.gen_length
-    } as usize;
+    // Combined mode: `secrt gen create ...` → delegate to run_create
+    if pa.args.iter().any(|a| a == "create") {
+        let new_args: Vec<String> = args
+            .iter()
+            .map(|a| {
+                if a == "create" {
+                    "gen".to_string()
+                } else {
+                    a.clone()
+                }
+            })
+            .collect();
+        return crate::create::run_create(&new_args, deps);
+    }
+
     let count = if pa.gen_count == 0 { 1 } else { pa.gen_count } as usize;
-
-    // Build character classes (lowercase always on)
-    let mut classes: Vec<&[u8]> = vec![LOWERCASE];
-    if !pa.gen_no_caps {
-        classes.push(UPPERCASE);
-    }
-    if !pa.gen_no_numbers {
-        classes.push(DIGITS);
-    }
-    if !pa.gen_no_symbols {
-        classes.push(SYMBOLS);
-    }
-
-    let required = classes.len();
-    if length < required {
-        let msg = format!(
-            "length {} is too short; need at least {} for the enabled character classes",
-            length, required
-        );
-        write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &msg);
-        return 2;
-    }
 
     // Generate passwords
     let mut passwords = Vec::with_capacity(count);
     for _ in 0..count {
-        match generate_password(length, &classes, pa.gen_grouped, &*deps.rand_bytes) {
+        match generate_password_from_args(&pa, &*deps.rand_bytes) {
             Ok(pw) => passwords.push(pw),
             Err(e) => {
-                write_error(
-                    &mut deps.stderr,
-                    pa.json,
-                    (deps.is_tty)(),
-                    &format!("generation failed: {}", e),
-                );
-                return 1;
+                write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &e);
+                return 2;
             }
         }
     }
@@ -84,6 +67,42 @@ pub fn run_gen(args: &[String], deps: &mut Deps) -> i32 {
     }
 
     0
+}
+
+/// Generate a single password using the gen flags from ParsedArgs.
+/// Used by both `run_gen` and `create.rs` in combined mode.
+pub fn generate_password_from_args(
+    pa: &ParsedArgs,
+    rand_bytes: &dyn Fn(&mut [u8]) -> Result<(), EnvelopeError>,
+) -> Result<String, String> {
+    let length = if pa.gen_length == 0 {
+        20
+    } else {
+        pa.gen_length
+    } as usize;
+
+    // Build character classes (lowercase always on)
+    let mut classes: Vec<&[u8]> = vec![LOWERCASE];
+    if !pa.gen_no_caps {
+        classes.push(UPPERCASE);
+    }
+    if !pa.gen_no_numbers {
+        classes.push(DIGITS);
+    }
+    if !pa.gen_no_symbols {
+        classes.push(SYMBOLS);
+    }
+
+    let required = classes.len();
+    if length < required {
+        return Err(format!(
+            "length {} is too short; need at least {} for the enabled character classes",
+            length, required
+        ));
+    }
+
+    generate_password(length, &classes, pa.gen_grouped, rand_bytes)
+        .map_err(|e| format!("generation failed: {}", e))
 }
 
 /// Generate a uniform random number in `[0, range)` using rejection sampling.

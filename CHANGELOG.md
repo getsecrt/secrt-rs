@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Combined `create gen` mode:** Generate a password and share it as a secret in one command. `secrt create gen` (canonical) or `secrt gen create` (alias). All gen and create flags work together (e.g., `secrt create gen -L 32 --ttl 1h -p`). Generated password is shown on stderr (TTY) or included in `--json` output as a `"password"` field.
+
 ## 0.3.0 — 2026-02-10
 
 ### Added

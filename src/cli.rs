@@ -262,16 +262,12 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
             // Gen flags
             "--length" | "-L" => {
                 let val = next_val!("--length");
-                pa.gen_length = val
-                    .parse::<u32>()
-                    .ok()
-                    .filter(|&n| n >= 1)
-                    .ok_or_else(|| {
-                        CliError::Error(format!(
-                            "--length requires a positive integer, got {:?}",
-                            val
-                        ))
-                    })?;
+                pa.gen_length = val.parse::<u32>().ok().filter(|&n| n >= 1).ok_or_else(|| {
+                    CliError::Error(format!(
+                        "--length requires a positive integer, got {:?}",
+                        val
+                    ))
+                })?;
             }
             "--no-symbols" | "-S" => pa.gen_no_symbols = true,
             "--no-numbers" | "-N" => pa.gen_no_numbers = true,
@@ -279,16 +275,12 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
             "--grouped" | "-G" => pa.gen_grouped = true,
             "--count" => {
                 let val = next_val!("--count");
-                pa.gen_count = val
-                    .parse::<u32>()
-                    .ok()
-                    .filter(|&n| n >= 1)
-                    .ok_or_else(|| {
-                        CliError::Error(format!(
-                            "--count requires a positive integer, got {:?}",
-                            val
-                        ))
-                    })?;
+                pa.gen_count = val.parse::<u32>().ok().filter(|&n| n >= 1).ok_or_else(|| {
+                    CliError::Error(format!(
+                        "--count requires a positive integer, got {:?}",
+                        val
+                    ))
+                })?;
             }
             _ => return Err(CliError::Error(format!("unknown flag: {}", arg))),
         }
@@ -936,6 +928,14 @@ pub fn print_help(deps: &mut Deps) {
     );
     let _ = writeln!(
         w,
+        "  {} {} {} 32 {} 1h",
+        c(CMD, "secrt"),
+        c(CMD, "create gen"),
+        c(OPT, "-L"),
+        c(OPT, "--ttl")
+    );
+    let _ = writeln!(
+        w,
         "  {} https://secrt.ca/s/abc#v1.key",
         c(CMD, "secrt claim")
     );
@@ -1026,6 +1026,12 @@ pub fn print_create_help(deps: &mut Deps) {
     );
     let _ = writeln!(
         w,
+        "  Use {} or {} to generate and share a random password.",
+        c(CMD, "gen"),
+        c(CMD, "generate")
+    );
+    let _ = writeln!(
+        w,
         "  Set show_input = true in config to show input by default."
     );
     let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
@@ -1041,6 +1047,14 @@ pub fn print_create_help(deps: &mut Deps) {
         c(CMD, "secrt"),
         c(CMD, "create"),
         c(OPT, "--text"),
+        c(OPT, "--ttl")
+    );
+    let _ = writeln!(
+        w,
+        "  {} {} {} 32 {} 1h",
+        c(CMD, "secrt"),
+        c(CMD, "create gen"),
+        c(OPT, "-L"),
         c(OPT, "--ttl")
     );
 }
@@ -1207,6 +1221,24 @@ pub fn print_gen_help(deps: &mut Deps) {
         c(CMD, "secrt"),
         c(CMD, "gen"),
         c(OPT, "--count")
+    );
+    let _ = writeln!(w, "\n{}", c(HEADING, "COMBINED MODE"));
+    let _ = writeln!(
+        w,
+        "  Generate a password and immediately share it as a secret."
+    );
+    let _ = writeln!(
+        w,
+        "  {} {} {} 1h",
+        c(CMD, "secrt"),
+        c(CMD, "gen create"),
+        c(OPT, "--ttl")
+    );
+    let _ = writeln!(
+        w,
+        "  All {} and {} options can be combined.",
+        c(CMD, "gen"),
+        c(CMD, "create")
     );
 }
 

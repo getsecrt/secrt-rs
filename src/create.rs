@@ -5,7 +5,15 @@ use crate::cli::{parse_flags, print_create_help, resolve_globals, CliError, Deps
 use crate::client::CreateRequest;
 use crate::color::{color_func, DIM, LABEL, SUCCESS, URL, WARN};
 use crate::envelope::{self, format_share_link, SealParams};
+use crate::gen::generate_password_from_args;
 use crate::passphrase::{resolve_passphrase_for_create, write_error};
+
+fn is_gen_mode(pa: &ParsedArgs) -> bool {
+    pa.args
+        .first()
+        .map(|a| a == "gen" || a == "generate")
+        .unwrap_or(false)
+}
 
 pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
     let mut pa = match parse_flags(args) {
@@ -28,6 +36,13 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
             write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &e);
             return 2;
         }
+    };
+
+    // In combined gen+create mode, capture the generated password for display
+    let generated_password = if is_gen_mode(&pa) {
+        Some(String::from_utf8(plaintext.clone()).unwrap_or_default())
+    } else {
+        None
     };
 
     // Apply --trim if requested
@@ -100,6 +115,19 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
 
     // Upload to server
     let is_tty = (deps.is_tty)();
+
+    // Show generated password before upload
+    if let Some(ref pw) = generated_password {
+        if !pa.json && !pa.silent {
+            if is_tty {
+                let c = color_func(true);
+                let _ = writeln!(deps.stderr, "{} Generated:\n{}", c(SUCCESS, "\u{2726}"), pw);
+            } else {
+                let _ = writeln!(deps.stderr, "{}", pw);
+            }
+        }
+    }
+
     if is_tty && !pa.silent {
         let c = color_func(true);
         let _ = write!(
@@ -148,12 +176,15 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
     let share_link = format_share_link(&resp.share_url, &result.url_key);
 
     if pa.json {
-        let out = serde_json::json!({
+        let mut out = serde_json::json!({
             "id": resp.id,
             "share_url": resp.share_url,
             "share_link": share_link,
             "expires_at": resp.expires_at,
         });
+        if let Some(ref pw) = generated_password {
+            out["password"] = serde_json::Value::String(pw.clone());
+        }
         let _ = writeln!(deps.stdout, "{}", serde_json::to_string(&out).unwrap());
     } else if (deps.is_stdout_tty)() {
         let c = color_func(true);
@@ -180,6 +211,7 @@ fn format_expires(iso: &str) -> String {
 }
 
 fn read_plaintext(pa: &ParsedArgs, deps: &mut Deps) -> Result<Vec<u8>, String> {
+    let gen_mode = is_gen_mode(pa);
     let mut sources = 0;
     if !pa.text.is_empty() {
         sources += 1;
@@ -187,9 +219,20 @@ fn read_plaintext(pa: &ParsedArgs, deps: &mut Deps) -> Result<Vec<u8>, String> {
     if !pa.file.is_empty() {
         sources += 1;
     }
+    if gen_mode {
+        sources += 1;
+    }
 
     if sources > 1 {
-        return Err("specify exactly one input source (stdin, --text, or --file)".into());
+        return Err("specify exactly one input source (stdin, --text, --file, or gen)".into());
+    }
+
+    if gen_mode {
+        if pa.gen_count > 1 {
+            return Err("--count cannot be used with create".into());
+        }
+        let password = generate_password_from_args(pa, &*deps.rand_bytes)?;
+        return Ok(password.into_bytes());
     }
 
     if !pa.text.is_empty() {

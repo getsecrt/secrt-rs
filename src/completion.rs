@@ -12,7 +12,7 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
 
     case "${prev}" in
         create)
-            COMPREPLY=($(compgen -W "--ttl --api-key --base-url --json --text --file --show --hidden --silent --multi-line --trim --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
+            COMPREPLY=($(compgen -W "gen generate --ttl --api-key --base-url --json --text --file --show --hidden --silent --multi-line --trim --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
             ;;
         claim)
             COMPREPLY=($(compgen -W "--output --base-url --json --silent --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
@@ -21,7 +21,7 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
             COMPREPLY=($(compgen -W "--api-key --base-url --json --silent --help" -- "${cur}"))
             ;;
         gen|generate)
-            COMPREPLY=($(compgen -W "--length --no-symbols --no-numbers --no-caps --grouped --count --json --help" -- "${cur}"))
+            COMPREPLY=($(compgen -W "create --length --no-symbols --no-numbers --no-caps --grouped --count --json --help" -- "${cur}"))
             ;;
         config)
             COMPREPLY=($(compgen -W "init path set-passphrase delete-passphrase --force" -- "${cur}"))
@@ -63,6 +63,7 @@ _secrt() {
             case $words[1] in
                 create)
                     _arguments \
+                        '1:input source:(gen generate)' \
                         '--ttl[TTL for secret]:ttl:' \
                         '--api-key[API key]:key:' \
                         '--base-url[Server URL]:url:' \
@@ -100,6 +101,7 @@ _secrt() {
                     ;;
                 gen|generate)
                     _arguments \
+                        '1:subcommand:(create)' \
                         {-L,--length}'[Password length]:length:' \
                         {-S,--no-symbols}'[Exclude symbols]' \
                         {-N,--no-numbers}'[Exclude digits]' \
@@ -150,6 +152,7 @@ complete -c secrt -n '__fish_seen_subcommand_from create' -l trim -d 'Trim white
 complete -c secrt -n '__fish_seen_subcommand_from create' -s p -l passphrase-prompt -d 'Prompt for passphrase'
 complete -c secrt -n '__fish_seen_subcommand_from create' -l passphrase-env -d 'Passphrase env var'
 complete -c secrt -n '__fish_seen_subcommand_from create' -l passphrase-file -d 'Passphrase file' -F
+complete -c secrt -n '__fish_seen_subcommand_from create' -a 'gen generate' -d 'Generate and share a password'
 
 complete -c secrt -n '__fish_seen_subcommand_from claim' -s o -l output -d 'Write output to file (- for stdout)' -F
 complete -c secrt -n '__fish_seen_subcommand_from claim' -l base-url -d 'Server URL'
@@ -171,6 +174,7 @@ complete -c secrt -n '__fish_seen_subcommand_from gen generate' -s C -l no-caps 
 complete -c secrt -n '__fish_seen_subcommand_from gen generate' -s G -l grouped -d 'Group characters by type'
 complete -c secrt -n '__fish_seen_subcommand_from gen generate' -l count -d 'Generate multiple passwords'
 complete -c secrt -n '__fish_seen_subcommand_from gen generate' -l json -d 'Output as JSON'
+complete -c secrt -n '__fish_seen_subcommand_from gen generate' -a 'create' -d 'Generate and share a password'
 
 complete -c secrt -n '__fish_seen_subcommand_from config' -a 'init path set-passphrase delete-passphrase' -d 'Config subcommand'
 complete -c secrt -n '__fish_seen_subcommand_from config' -l force -d 'Overwrite existing config file'
