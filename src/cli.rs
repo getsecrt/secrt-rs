@@ -303,6 +303,8 @@ pub fn resolve_globals_with_config(
     deps: &Deps,
     config: &crate::config::Config,
 ) {
+    let use_kc = config.use_keychain.unwrap_or(false);
+
     if pa.base_url.is_empty() {
         if let Some(env) = (deps.getenv)("SECRET_BASE_URL") {
             pa.base_url = env;
@@ -315,17 +317,27 @@ pub fn resolve_globals_with_config(
     if pa.api_key.is_empty() {
         if let Some(env) = (deps.getenv)("SECRET_API_KEY") {
             pa.api_key = env;
-        } else if let Some(val) = (deps.get_keychain_secret)("api_key") {
-            pa.api_key = val;
-        } else if let Some(ref key) = config.api_key {
-            pa.api_key = key.clone();
+        } else if use_kc {
+            if let Some(val) = (deps.get_keychain_secret)("api_key") {
+                pa.api_key = val;
+            }
+        }
+        if pa.api_key.is_empty() {
+            if let Some(ref key) = config.api_key {
+                pa.api_key = key.clone();
+            }
         }
     }
     if pa.passphrase_default.is_empty() {
-        if let Some(val) = (deps.get_keychain_secret)("passphrase") {
-            pa.passphrase_default = val;
-        } else if let Some(ref pass) = config.passphrase {
-            pa.passphrase_default = pass.clone();
+        if use_kc {
+            if let Some(val) = (deps.get_keychain_secret)("passphrase") {
+                pa.passphrase_default = val;
+            }
+        }
+        if pa.passphrase_default.is_empty() {
+            if let Some(ref pass) = config.passphrase {
+                pa.passphrase_default = pass.clone();
+            }
         }
     }
     if let Some(show) = config.show_input {
@@ -341,7 +353,11 @@ pub fn resolve_globals_with_config(
 
     // decryption_passphrases: keychain (JSON array) then config, merged + deduped
     {
-        let mut dp = (deps.get_keychain_secret_list)("decryption_passphrases");
+        let mut dp = if use_kc {
+            (deps.get_keychain_secret_list)("decryption_passphrases")
+        } else {
+            Vec::new()
+        };
         for p in &config.decryption_passphrases {
             if !dp.contains(p) {
                 dp.push(p.clone());
@@ -365,8 +381,18 @@ fn run_config(args: &[String], deps: &mut Deps) -> i32 {
             0
         }
         "init" => {
+            if args.iter().any(|a| a == "-h" || a == "--help") {
+                print_config_help(deps);
+                return 0;
+            }
             let force = args.iter().any(|a| a == "--force");
             run_config_init(force, deps)
+        }
+        "path" | "set-passphrase" | "delete-passphrase"
+            if args.iter().any(|a| a == "-h" || a == "--help") =>
+        {
+            print_config_help(deps);
+            0
         }
         "path" => run_config_path(deps),
         "set-passphrase" => run_config_set_passphrase(deps),
@@ -564,8 +590,24 @@ fn run_config_show(deps: &mut Deps) -> i32 {
         );
     }
 
+    let use_kc = config.use_keychain.unwrap_or(false);
+
     let _ = writeln!(deps.stderr);
     let _ = writeln!(deps.stderr, "{}", c(HEADING, "EFFECTIVE SETTINGS"));
+
+    // use_keychain: config/default
+    let (use_kc_val, use_kc_src) = if let Some(v) = config.use_keychain {
+        (v.to_string(), "config file")
+    } else {
+        ("false".into(), "default")
+    };
+    let _ = writeln!(
+        deps.stderr,
+        "  {}: {} {}",
+        c(OPT, "use_keychain"),
+        use_kc_val,
+        c(DIM, &format!("({})", use_kc_src)),
+    );
 
     // base_url: flag/env/config/default
     let (base_url_val, base_url_src) = if let Some(env) = (deps.getenv)("SECRET_BASE_URL") {
@@ -586,8 +628,14 @@ fn run_config_show(deps: &mut Deps) -> i32 {
     // api_key: env/keychain/config/none
     let (api_key_display, api_key_src) = if let Some(env) = (deps.getenv)("SECRET_API_KEY") {
         (crate::config::mask_secret(&env, true), "env SECRET_API_KEY")
-    } else if let Some(val) = (deps.get_keychain_secret)("api_key") {
-        (crate::config::mask_secret(&val, true), "keychain")
+    } else if use_kc {
+        if let Some(val) = (deps.get_keychain_secret)("api_key") {
+            (crate::config::mask_secret(&val, true), "keychain")
+        } else if let Some(ref key) = config.api_key {
+            (crate::config::mask_secret(key, true), "config file")
+        } else {
+            ("(not set)".into(), "")
+        }
     } else if let Some(ref key) = config.api_key {
         (crate::config::mask_secret(key, true), "config file")
     } else {
@@ -611,8 +659,14 @@ fn run_config_show(deps: &mut Deps) -> i32 {
     }
 
     // passphrase: keychain/config/none
-    let (pass_display, pass_src) = if let Some(val) = (deps.get_keychain_secret)("passphrase") {
-        (crate::config::mask_secret(&val, false), "keychain")
+    let (pass_display, pass_src) = if use_kc {
+        if let Some(val) = (deps.get_keychain_secret)("passphrase") {
+            (crate::config::mask_secret(&val, false), "keychain")
+        } else if let Some(ref pass) = config.passphrase {
+            (crate::config::mask_secret(pass, false), "config file")
+        } else {
+            ("(not set)".into(), "")
+        }
     } else if let Some(ref pass) = config.passphrase {
         (crate::config::mask_secret(pass, false), "config file")
     } else {
@@ -638,8 +692,12 @@ fn run_config_show(deps: &mut Deps) -> i32 {
     // Fetch server info (best-effort, non-fatal)
     let api_key_for_info = if let Some(env) = (deps.getenv)("SECRET_API_KEY") {
         env
-    } else if let Some(val) = (deps.get_keychain_secret)("api_key") {
-        val
+    } else if use_kc {
+        if let Some(val) = (deps.get_keychain_secret)("api_key") {
+            val
+        } else {
+            config.api_key.clone().unwrap_or_default()
+        }
     } else if let Some(ref key) = config.api_key {
         key.clone()
     } else {
@@ -689,7 +747,11 @@ fn run_config_show(deps: &mut Deps) -> i32 {
     );
 
     // decryption_passphrases: keychain/config/both/none
-    let kc_list = (deps.get_keychain_secret_list)("decryption_passphrases");
+    let kc_list = if use_kc {
+        (deps.get_keychain_secret_list)("decryption_passphrases")
+    } else {
+        Vec::new()
+    };
     let cfg_list = &config.decryption_passphrases;
     let has_kc = !kc_list.is_empty();
     let has_cfg = !cfg_list.is_empty();
@@ -1088,6 +1150,18 @@ pub fn print_get_help(deps: &mut Deps) {
         c(CMD, "secrt"),
         c(CMD, "get")
     );
+    let _ = writeln!(
+        w,
+        "\n  {} The {} subcommand is optional:",
+        c(DIM, "#"),
+        c(CMD, "get")
+    );
+    let _ = writeln!(
+        w,
+        "  {} https://secrt.ca/s/abc#v1.key {} mysecret.txt",
+        c(CMD, "secrt"),
+        c(OPT, "-o")
+    );
 }
 
 pub fn print_burn_help(deps: &mut Deps) {
@@ -1264,10 +1338,13 @@ pub fn print_config_help(deps: &mut Deps) {
         w,
         "  Supported keys: api_key, base_url, default_ttl, passphrase,"
     );
-    let _ = writeln!(w, "  decryption_passphrases, show_input.");
+    let _ = writeln!(w, "  decryption_passphrases, show_input, use_keychain.");
     let _ = writeln!(
         w,
-        "  Precedence: CLI flag > env var > config file > default."
+        "  Precedence: CLI flag {} env var {} config file {} default.",
+        c(DIM, "\u{203a}"),
+        c(DIM, "\u{203a}"),
+        c(DIM, "\u{203a}"),
     );
 }
 

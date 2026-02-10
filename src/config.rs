@@ -12,6 +12,7 @@ pub struct Config {
     pub passphrase: Option<String>,
     pub default_ttl: Option<String>,
     pub show_input: Option<bool>,
+    pub use_keychain: Option<bool>,
     #[serde(default)]
     pub decryption_passphrases: Vec<String>,
 }
@@ -123,6 +124,11 @@ pub const CONFIG_TEMPLATE: &str = "\
 
 # Show input while typing (default: false)
 # show_input = false
+
+# Read secrets (api_key, passphrase) from the OS credential store
+# (macOS Keychain, Linux keyutils, Windows Credential Manager).
+# Requires building with --features keychain. Default: false.
+# use_keychain = false
 ";
 
 /// Create a config file from the template. Returns Ok(path) on success.
@@ -430,6 +436,10 @@ mod tests {
         assert!(
             CONFIG_TEMPLATE.contains("show_input"),
             "template missing show_input"
+        );
+        assert!(
+            CONFIG_TEMPLATE.contains("use_keychain"),
+            "template missing use_keychain"
         );
     }
 

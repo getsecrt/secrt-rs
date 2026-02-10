@@ -216,6 +216,9 @@ decryption_passphrases = ["old-passphrase", "team-passphrase"]
 
 # Show secret input as typed (default: false)
 show_input = true
+
+# Read secrets from the OS credential store (default: false)
+# use_keychain = false
 ```
 
 The `decryption_passphrases` array is useful for teams rotating passphrases — when claiming a secret, secrt tries the default `passphrase` first, then each entry in `decryption_passphrases` in order, before falling back to an interactive prompt. This allows seamless decryption of secrets encrypted with older passphrases without manual intervention.
@@ -251,6 +254,8 @@ If the file is group- or world-readable, secrt will warn and **skip loading secr
 
 When built with the `keychain` feature, secrt can read `api_key`, `passphrase`, and `decryption_passphrases` from your OS credential store (macOS Keychain, Linux keyutils, Windows Credential Manager). For `decryption_passphrases`, store a JSON array string (e.g., `["p1","p2"]`).
 
+Keychain reads are **disabled by default** to avoid OS elevation prompts (e.g., macOS Keychain) on every command. To opt in, set `use_keychain = true` in your config file.
+
 ```sh
 # Install with keychain support
 cargo install --path . --features keychain
@@ -264,7 +269,7 @@ Settings are resolved in this order (first match wins):
 
 1. **CLI flag** (`--api-key`, `--base-url`, `--passphrase-*`)
 2. **Environment variable** (`SECRET_API_KEY`, `SECRET_BASE_URL`)
-3. **OS keychain** (if built with `keychain` feature)
+3. **OS keychain** (if `use_keychain = true` and built with `keychain` feature)
 4. **Config file** (`~/.config/secrt/config.toml`)
 5. **Built-in default**
 
