@@ -370,18 +370,12 @@ fn output_plaintext(
             Ok(text) => {
                 out.insert("plaintext".into(), serde_json::json!(text));
             }
-            Err(_) if file_hint.is_some() => {
+            Err(_) => {
                 use base64::engine::general_purpose::STANDARD;
                 use base64::Engine;
                 out.insert(
                     "plaintext_base64".into(),
                     serde_json::json!(STANDARD.encode(plaintext)),
-                );
-            }
-            Err(_) => {
-                out.insert(
-                    "plaintext".into(),
-                    serde_json::json!(String::from_utf8_lossy(plaintext)),
                 );
             }
         }
@@ -426,14 +420,30 @@ fn output_plaintext(
         return 0;
     }
 
-    // 6. No hint, TTY → current behavior
-    if !pa.silent {
-        let c = color_func(true);
-        let _ = writeln!(deps.stderr, "{}", c(LABEL, "Secret:"));
-    }
-    let _ = deps.stdout.write_all(plaintext);
-    if !plaintext.ends_with(b"\n") {
-        let _ = writeln!(deps.stdout);
+    // 6. No hint, TTY → text output (with binary detection)
+    match std::str::from_utf8(plaintext) {
+        Ok(text) => {
+            if !pa.silent {
+                let c = color_func(true);
+                let _ = writeln!(deps.stderr, "{}", c(LABEL, "Secret:"));
+            }
+            let _ = deps.stdout.write_all(text.as_bytes());
+            if !text.ends_with('\n') {
+                let _ = writeln!(deps.stdout);
+            }
+        }
+        Err(_) => {
+            // Binary data without a hint — auto-save since the secret is already burned
+            let filename = "secret.bin";
+            let path = match resolve_output_path(filename) {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = writeln!(deps.stderr, "error: {}", e);
+                    return 1;
+                }
+            };
+            return write_file_output(&path.to_string_lossy(), plaintext, None, pa, deps);
+        }
     }
     0
 }

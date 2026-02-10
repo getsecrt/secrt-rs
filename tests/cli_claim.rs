@@ -207,7 +207,7 @@ fn claim_success_json_with_unicode() {
 
 #[test]
 fn claim_success_json_with_binary() {
-    // Test that binary data (non-UTF-8) is handled gracefully with lossy conversion
+    // Test that binary data (non-UTF-8) uses base64 encoding in JSON output
     let plaintext: &[u8] = &[0x80, 0x81, 0x82, 0xFF, 0xFE]; // Invalid UTF-8 bytes
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
@@ -219,12 +219,11 @@ fn claim_success_json_with_binary() {
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
-    // Lossy conversion replaces invalid bytes with U+FFFD (replacement character)
-    let plaintext_str = json["plaintext"].as_str().unwrap();
-    assert!(
-        plaintext_str.contains('\u{FFFD}'),
-        "Binary data should contain replacement chars"
-    );
+    // Binary data should be base64-encoded
+    let b64 = json["plaintext_base64"].as_str().unwrap();
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+    assert_eq!(STANDARD.decode(b64).unwrap(), plaintext);
 }
 
 #[test]
@@ -1083,6 +1082,77 @@ fn claim_text_no_hint_unchanged_behavior() {
     assert!(
         !stderr.to_string().contains("Saved to"),
         "should NOT save text secrets to file"
+    );
+}
+
+#[test]
+fn claim_binary_no_hint_tty_auto_saves() {
+    // Binary data without a file hint on a TTY should auto-save to secret.bin
+    let plaintext: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]; // PNG header
+    let (share_link, seal_result) = seal_test_secret(plaintext, "");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+
+    // Run in a temp dir so we can check the saved file
+    let tmp = std::env::temp_dir().join(format!("secrt-test-binary-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let prev = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&tmp).unwrap();
+
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .is_stdout_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+
+    // Restore cwd before assertions so cleanup works even on failure
+    std::env::set_current_dir(&prev).unwrap();
+
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert!(
+        stderr.to_string().contains("Saved to"),
+        "should show save confirmation: {}",
+        stderr.to_string()
+    );
+    assert!(
+        stderr.to_string().contains("secret.bin"),
+        "should save as secret.bin: {}",
+        stderr.to_string()
+    );
+    assert!(
+        stdout.to_string().is_empty(),
+        "should NOT dump binary to stdout"
+    );
+
+    // Verify file contents
+    let saved = std::fs::read(tmp.join("secret.bin")).expect("secret.bin should exist");
+    assert_eq!(saved, plaintext);
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn claim_binary_no_hint_piped_passes_through() {
+    // Binary data without a hint on piped stdout should pass through raw
+    let plaintext: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    let (share_link, seal_result) = seal_test_secret(plaintext, "");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, stdout, _stderr) = TestDepsBuilder::new()
+        .is_stdout_tty(false)
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    assert_eq!(code, 0, "piped binary should succeed");
+    assert_eq!(
+        &*stdout.0.lock().unwrap(),
+        plaintext,
+        "should pass raw bytes through"
     );
 }
 
