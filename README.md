@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="docs/images/secrt-logo-sticker.svg" alt="secrt" width="250">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/secrt-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/images/secrt-logo-sticker.svg">
+    <img alt="secrt" src="docs/images/secrt-logo-sticker.svg" width="250">
+  </picture>
 </p>
 
 # secrt
@@ -312,7 +316,7 @@ to speed-optimized builds.
 | `"2"` | ~1,642 KB | ~65 ms | Default Rust release level. |
 | `"3"` | ~1,642 KB | ~66 ms | Max speed — no meaningful gain over `"2"`. |
 
-*Measured on Apple M1 Max, macOS, `aarch64`. Results vary by platform.*
+*Measured on Apple M2 Max, macOS, `aarch64`. Results vary by platform.*
 
 **Why not exempt `ring` from size optimization?** The `Cargo.toml` includes
 `[profile.release.package.ring] opt-level = 3`, but full LTO (`lto = true`) merges all
