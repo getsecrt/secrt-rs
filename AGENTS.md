@@ -5,7 +5,7 @@ zero-knowledge client-side encryption (AES-256-GCM + HKDF + optional PBKDF2).
 
 ## Canonical spec
 
-The living spec documents live in `../secrt/spec/v1/`:
+The spec lives in a sibling repo: `../spec/v1/` (symlinked into this repo as `spec/`).
 - `envelope.md` — envelope format and crypto
 - `cli.md` — CLI interface and TTL grammar
 - `envelope.vectors.json` — crypto test vectors (7 vectors)
