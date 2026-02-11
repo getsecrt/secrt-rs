@@ -210,7 +210,7 @@ fn gen_send_combined() {
     let code = cli::run(&args(&["secrt", "gen", "send"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
-    assert!(out.contains("#v1."), "should output share link: {}", out);
+    assert!(out.contains("#"), "should output share link: {}", out);
 }
 
 #[test]
@@ -221,7 +221,7 @@ fn send_gen_combined() {
     let code = cli::run(&args(&["secrt", "send", "gen"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
-    assert!(out.contains("#v1."), "should output share link: {}", out);
+    assert!(out.contains("#"), "should output share link: {}", out);
 }
 
 #[test]
@@ -232,7 +232,7 @@ fn gen_send_with_ttl() {
     let code = cli::run(&args(&["secrt", "gen", "send", "--ttl", "1h"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
-    assert!(out.contains("#v1."), "should output share link: {}", out);
+    assert!(out.contains("#"), "should output share link: {}", out);
 }
 
 #[test]
@@ -242,7 +242,7 @@ fn gen_send_with_length() {
         .build();
     let code = cli::run(&args(&["secrt", "gen", "send", "-L", "32"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
 }
 
 #[test]
@@ -254,7 +254,7 @@ fn gen_send_json() {
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("valid JSON");
-    assert!(json["share_link"].as_str().unwrap().contains("#v1."));
+    assert!(json["share_link"].as_str().unwrap().contains("#"));
     assert!(
         json["password"].is_string(),
         "should include password in JSON"
@@ -291,7 +291,7 @@ fn gen_send_tty_shows_generated_password() {
         "TTY should show 'Generated:' label: {}",
         err
     );
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
 }
 
 #[test]
@@ -328,5 +328,5 @@ fn gen_send_silent_suppresses_generated_password() {
         "silent should suppress generated password: {}",
         err
     );
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
 }

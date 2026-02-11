@@ -241,7 +241,7 @@ fn send_multi_line_tty_reads_from_stdin() {
     let code = cli::run(&args(&["secrt", "send", "--multi-line"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert!(
-        stdout.to_string().contains("#v1."),
+        stdout.to_string().contains("#"),
         "should succeed and output share link: {}",
         stdout.to_string()
     );
@@ -276,7 +276,7 @@ fn send_multi_line_preserves_exact_bytes() {
     let code = cli::run(&args(&["secrt", "send", "--multi-line"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     // Success means the exact bytes were used (not trimmed)
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
 }
 
 #[test]
@@ -299,7 +299,7 @@ fn send_trim_strips_whitespace_stdin() {
         .build();
     let code = cli::run(&args(&["secrt", "send", "--trim"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
 }
 
 #[test]
@@ -312,7 +312,7 @@ fn send_trim_with_text_flag() {
         &mut deps,
     );
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
 }
 
 #[test]
@@ -329,7 +329,7 @@ fn send_trim_with_file_flag() {
         &mut deps,
     );
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
     let _ = std::fs::remove_file(&path);
 }
 
@@ -356,7 +356,7 @@ fn send_multi_line_with_trim() {
         &mut deps,
     );
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
 }
 
 #[test]
@@ -369,7 +369,7 @@ fn send_default_tty_uses_single_line() {
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
     // Should show "input is hidden" hint on instruction line
     let err = stderr.to_string();
     assert!(
@@ -397,7 +397,7 @@ fn send_success_plain() {
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
     assert!(
-        out.contains("https://secrt.ca/s/test-id-123#v1."),
+        out.contains("https://secrt.ca/s/test-id-123#"),
         "stdout should contain share link: {}",
         out
     );
@@ -414,7 +414,7 @@ fn send_success_json() {
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
     assert_eq!(json["id"].as_str().unwrap(), "test-id-123");
-    assert!(json["share_link"].as_str().unwrap().contains("#v1."));
+    assert!(json["share_link"].as_str().unwrap().contains("#"));
     assert!(json["share_url"].as_str().is_some());
     assert!(json["expires_at"].as_str().is_some());
 }
@@ -429,7 +429,7 @@ fn send_success_with_ttl() {
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
     assert!(
-        out.contains("#v1."),
+        out.contains("#"),
         "stdout should contain share link: {}",
         out
     );
@@ -507,7 +507,7 @@ fn send_show_flag_reads_visible_input() {
         .build();
     let code = cli::run(&args(&["secrt", "send", "--show"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
     let err = stderr.to_string();
     assert!(
         err.contains("input will be shown"),
@@ -525,7 +525,7 @@ fn send_show_short_flag() {
         .build();
     let code = cli::run(&args(&["secrt", "send", "-s"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
 }
 
 #[test]
@@ -553,7 +553,7 @@ fn send_silent_suppresses_status() {
         .build();
     let code = cli::run(&args(&["secrt", "send", "--silent"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
     let err = stderr.to_string();
     assert!(
         err.is_empty(),
@@ -571,7 +571,7 @@ fn send_silent_tty_suppresses_prompts_and_status() {
         .build();
     let code = cli::run(&args(&["secrt", "send", "--silent"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
     let err = stderr.to_string();
     assert!(
         !err.contains("Enter your secret"),
@@ -674,7 +674,7 @@ fn send_success_tty_stdout_shows_link() {
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
-    assert!(out.contains("#v1."), "should show share link: {}", out);
+    assert!(out.contains("#"), "should show share link: {}", out);
 }
 
 #[test]
@@ -730,7 +730,7 @@ fn send_show_crlf_stripping() {
         .build();
     let code = cli::run(&args(&["secrt", "send", "--show"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
 }
 
 #[test]
@@ -756,7 +756,7 @@ fn send_silent_show_mode_suppresses_prompts() {
         .build();
     let code = cli::run(&args(&["secrt", "send", "--show", "--silent"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
-    assert!(stdout.to_string().contains("#v1."));
+    assert!(stdout.to_string().contains("#"));
     let err = stderr.to_string();
     assert!(
         !err.contains("input will be shown"),

@@ -622,7 +622,7 @@ fn old_verb_create_rejected() {
 fn old_verb_claim_rejected() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
     let code = cli::run(
-        &args(&["secrt", "claim", "https://secrt.ca/s/abc123#v1.key"]),
+        &args(&["secrt", "claim", "https://secrt.ca/s/abc123#key"]),
         &mut deps,
     );
     assert_eq!(code, 2, "old 'claim' command should be rejected");
@@ -644,7 +644,7 @@ fn old_verb_gen_create_not_combined() {
     // Should produce a password (gen output), not a share link
     let out = stdout.to_string();
     assert!(
-        !out.contains("#v1."),
+        !out.contains("#"),
         "gen create should NOT create a secret: {}",
         out
     );

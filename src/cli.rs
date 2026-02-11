@@ -123,7 +123,7 @@ pub fn run(args: &[String], deps: &mut Deps) -> i32 {
         "get" => run_get(remaining, deps),
         "burn" => run_burn(remaining, deps),
         "gen" | "generate" => run_gen(remaining, deps),
-        _ if command.contains("#v1.") => {
+        _ if looks_like_share_url(command) => {
             // Implicit get: treat share URLs/bare IDs as `secrt get <url>`
             run_get(&args[1..], deps)
         }
@@ -133,6 +133,20 @@ pub fn run(args: &[String], deps: &mut Deps) -> i32 {
             2
         }
     }
+}
+
+/// Detect whether a string looks like a share URL (contains `#` followed by
+/// a base64url string of >= 22 chars). The threshold prevents false positives
+/// on short fragments while being well below the actual 43-char key length.
+fn looks_like_share_url(s: &str) -> bool {
+    let Some(hash_pos) = s.find('#') else {
+        return false;
+    };
+    let frag = &s[hash_pos + 1..];
+    frag.len() >= 22
+        && frag
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 fn run_help(args: &[String], deps: &mut Deps) -> i32 {
@@ -1003,7 +1017,7 @@ pub fn print_help(deps: &mut Deps) {
         c(OPT, "--ttl")
     );
     let _ = writeln!(w, "\n  {} Retrieve a secret:", c(DIM, "#"));
-    let _ = writeln!(w, "  {} https://secrt.ca/s/abc#v1.key", c(CMD, "secrt get"));
+    let _ = writeln!(w, "  {} https://secrt.ca/s/abc#key", c(CMD, "secrt get"));
 }
 
 pub fn print_send_help(deps: &mut Deps) {
@@ -1146,7 +1160,7 @@ pub fn print_get_help(deps: &mut Deps) {
     let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
     let _ = writeln!(
         w,
-        "  {} {} https://secrt.ca/s/abc#v1.key",
+        "  {} {} https://secrt.ca/s/abc#key",
         c(CMD, "secrt"),
         c(CMD, "get")
     );
@@ -1158,7 +1172,7 @@ pub fn print_get_help(deps: &mut Deps) {
     );
     let _ = writeln!(
         w,
-        "  {} https://secrt.ca/s/abc#v1.key {} mysecret.txt",
+        "  {} https://secrt.ca/s/abc#key {} mysecret.txt",
         c(CMD, "secrt"),
         c(OPT, "-o")
     );
@@ -2134,5 +2148,58 @@ mod tests {
     #[test]
     fn limit_nonzero() {
         assert_eq!(format_limit(42), "42");
+    }
+
+    // --- looks_like_share_url tests ---
+
+    #[test]
+    fn share_url_full() {
+        assert!(looks_like_share_url(
+            "https://secrt.ca/s/abc123#AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA"
+        ));
+    }
+
+    #[test]
+    fn share_url_bare_id() {
+        assert!(looks_like_share_url(
+            "abc123#AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA"
+        ));
+    }
+
+    #[test]
+    fn share_url_no_hash() {
+        assert!(!looks_like_share_url("send"));
+    }
+
+    #[test]
+    fn share_url_short_fragment() {
+        assert!(!looks_like_share_url("abc#short"));
+    }
+
+    #[test]
+    fn share_url_subcommand_names() {
+        assert!(!looks_like_share_url("send"));
+        assert!(!looks_like_share_url("get"));
+        assert!(!looks_like_share_url("burn"));
+        assert!(!looks_like_share_url("gen"));
+        assert!(!looks_like_share_url("help"));
+        assert!(!looks_like_share_url("version"));
+    }
+
+    #[test]
+    fn share_url_fragment_with_invalid_chars() {
+        assert!(!looks_like_share_url("abc#aaaa!bbbbbbbbbbbbbbbbbbb"));
+    }
+
+    #[test]
+    fn share_url_exactly_22_char_fragment() {
+        // 22 base64url chars = exactly the threshold
+        assert!(looks_like_share_url("id#abcdefghijklmnopqrstuv"));
+    }
+
+    #[test]
+    fn share_url_21_char_fragment() {
+        // 21 chars = below threshold
+        assert!(!looks_like_share_url("id#abcdefghijklmnopqrstu"));
     }
 }

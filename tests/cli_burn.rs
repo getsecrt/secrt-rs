@@ -10,7 +10,7 @@ const DEAD_URL: &str = "http://127.0.0.1:19191";
 fn make_share_url(base: &str, id: &str) -> String {
     let key = vec![42u8; 32];
     let key_b64 = b64_encode(&key);
-    format!("{}/s/{}#v1.{}", base, id, key_b64)
+    format!("{}/s/{}#{}", base, id, key_b64)
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn burn_json_output() {
 fn burn_malformed_url() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
     let code = cli::run(
-        &args(&["secrt", "burn", "bad/url#v1.short", "--api-key", "sk_test"]),
+        &args(&["secrt", "burn", "bad/url#short", "--api-key", "sk_test"]),
         &mut deps,
     );
     assert_eq!(code, 2, "stderr: {}", stderr.to_string());

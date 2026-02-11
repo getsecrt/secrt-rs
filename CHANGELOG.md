@@ -21,7 +21,7 @@
 - **`gen` command:** Built-in password generator (`secrt gen` / `secrt generate`). Defaults to 20-char passwords with lowercase, uppercase, digits, and symbols (`!@*^_+-=?`). Flags: `-L` length, `-S` no symbols, `-N` no digits, `-C` no uppercase, `-G` grouped by character type, `--count` for multiple passwords. Supports `--json` output. Uses cryptographically secure randomness with unbiased rejection sampling.
 - **`use_keychain` config option:** Keychain reads are now gated behind `use_keychain = true` in the config file (default: `false`). This prevents OS elevation prompts (e.g., macOS Keychain) on every command for users who don't use keychain storage.
 - **`--help` for config subcommands:** `secrt config init --help`, `secrt config path --help`, etc. now show help instead of running the subcommand.
-- **Implicit get example in help:** `secrt get --help` now shows the `get` subcommand is optional (e.g., `secrt https://secrt.ca/s/abc#v1.key`).
+- **Implicit get example in help:** `secrt get --help` now shows the `get` subcommand is optional (e.g., `secrt https://secrt.ca/s/abc#key`).
 - **Combined `send gen` mode:** Generate a password and share it as a secret in one command. `secrt send gen` (canonical) or `secrt gen send` (alias). All gen and send flags work together (e.g., `secrt send gen -L 32 --ttl 1h -p`). Generated password is shown on stderr (TTY) or included in `--json` output as a `"password"` field.
 
 ## 0.2.0 — 2026-02-10

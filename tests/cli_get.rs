@@ -21,7 +21,7 @@ static CWD_LOCK: Mutex<()> = Mutex::new(());
 fn make_share_url(base: &str, id: &str) -> String {
     let key = vec![42u8; 32];
     let key_b64 = b64_encode(&key);
-    format!("{}/s/{}#v1.{}", base, id, key_b64)
+    format!("{}/s/{}#{}", base, id, key_b64)
 }
 
 fn real_rand(buf: &mut [u8]) -> Result<(), secrt::envelope::EnvelopeError> {

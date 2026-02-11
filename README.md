@@ -66,10 +66,10 @@ echo "s3cret-password" | secrt send
 echo "s3cret-password" | secrt send -p --ttl 5m
 
 # Claim a secret (auto-prompts for passphrase if needed)
-secrt get https://secrt.ca/s/abc123#v1.key...
+secrt get https://secrt.ca/s/abc123#key...
 
 # Or just paste the URL directly (implicit get)
-secrt https://secrt.ca/s/abc123#v1.key...
+secrt https://secrt.ca/s/abc123#key...
 
 # Generate a password
 secrt gen
@@ -140,7 +140,7 @@ secrt get <share-url> [options]
 **Tip:** The `get` subcommand is optional — you can paste a share URL directly:
 
 ```sh
-secrt https://secrt.ca/s/abc123#v1.key...
+secrt https://secrt.ca/s/abc123#key...
 ```
 
 If the secret is passphrase-protected and a TTY is attached, `get` automatically prompts for the passphrase with unlimited retries. For non-interactive use, provide the passphrase via `--passphrase-env` or `--passphrase-file`.
@@ -157,16 +157,16 @@ If the secret is passphrase-protected and a TTY is attached, `get` automatically
 
 ```sh
 # Claim a secret (auto-prompts for passphrase if needed)
-secrt get https://secrt.ca/s/abc123#v1.key...
+secrt get https://secrt.ca/s/abc123#key...
 
 # Explicitly prompt for passphrase
-secrt get https://secrt.ca/s/abc123#v1.key... -p
+secrt get https://secrt.ca/s/abc123#key... -p
 
 # Passphrase from env (non-interactive)
-secrt get https://secrt.ca/s/abc123#v1.key... --passphrase-env MY_PASS
+secrt get https://secrt.ca/s/abc123#key... --passphrase-env MY_PASS
 
 # Pipe to a file
-secrt get https://secrt.ca/s/abc123#v1.key... > secret.txt
+secrt get https://secrt.ca/s/abc123#key... > secret.txt
 ```
 
 ### `burn` — Destroy a secret
@@ -188,7 +188,7 @@ secrt burn <id-or-url> [options]
 secrt burn abc123 --api-key sk_prefix.secret
 
 # Burn by share URL
-secrt burn https://secrt.ca/s/abc123#v1.key... --api-key sk_prefix.secret
+secrt burn https://secrt.ca/s/abc123#key... --api-key sk_prefix.secret
 ```
 
 ### `gen` — Generate a random password
