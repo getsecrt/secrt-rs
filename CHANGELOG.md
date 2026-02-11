@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 — 2026-02-10
+
+### Fixed
+
+- **Windows CI:** Fix `config_path_with_empty_xdg` test that failed on Windows due to backslash path separators. Now uses `Path::ends_with` for cross-platform component comparison.
+
+### Changed
+
+- **Rename:** Repository renamed from `secrt-rs` to `secrt-cli` across all references.
+
 ## 0.3.0 — 2026-02-10
 
 ### Changed

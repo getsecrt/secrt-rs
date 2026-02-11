@@ -186,7 +186,7 @@
           {
             "id": 4,
             "title": "Add download links to README",
-            "description": "Add an Install section with permanent latest-release download links using GitHub's `/releases/latest/download/` URL pattern. E.g. `https://github.com/getsecrt/secrt-rs/releases/latest/download/secrt-macos-universal`. Include links for macOS (universal), Linux (x86_64, aarch64), and Windows. These URLs never need updating because filenames are version-free.",
+            "description": "Add an Install section with permanent latest-release download links using GitHub's `/releases/latest/download/` URL pattern. E.g. `https://github.com/getsecrt/secrt-cli/releases/latest/download/secrt-macos-universal`. Include links for macOS (universal), Linux (x86_64, aarch64), and Windows. These URLs never need updating because filenames are version-free.",
             "status": "pending"
           },
           {

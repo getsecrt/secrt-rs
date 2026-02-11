@@ -527,8 +527,12 @@ mod tests {
             }
         };
         let path = config_path_with(&getenv).unwrap();
+        // Use Path::ends_with which compares components (cross-platform)
+        let expected = std::path::Path::new(".config")
+            .join("secrt")
+            .join("config.toml");
         assert!(
-            path.to_string_lossy().contains("config/secrt/config.toml"),
+            path.ends_with(&expected),
             "should fall back to ~/.config: {:?}",
             path
         );
