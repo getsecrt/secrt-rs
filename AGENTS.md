@@ -1,4 +1,4 @@
-# secrt-rs — Rust CLI for secrt.ca
+# secrt-cli — Rust CLI for secrt.ca
 
 Rust reimplementation of the Go `secrt` CLI. One-time secret sharing with
 zero-knowledge client-side encryption (AES-256-GCM + HKDF + optional PBKDF2).

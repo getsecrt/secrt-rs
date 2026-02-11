@@ -3,7 +3,7 @@ name = "secrt"
 version = "0.3.0"
 edition = "2021"
 rust-version = "1.82"
-repository = "https://github.com/getsecrt/secrt-rs"
+repository = "https://github.com/getsecrt/secrt-cli"
 license = "MIT"
 
 [dependencies]

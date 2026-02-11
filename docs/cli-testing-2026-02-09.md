@@ -1,4 +1,4 @@
-# secrt-rs CLI Testing Notes
+# secrt-cli CLI Testing Notes
 
 **Date:** 2026-02-09  
 **Version:** `secrt dev`  

@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/getsecrt/secrt-rs/actions/workflows/ci.yml"><img src="https://github.com/getsecrt/secrt-rs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/getsecrt/secrt-cli/actions/workflows/ci.yml"><img src="https://github.com/getsecrt/secrt-cli/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/MSRV-1.82-blue" alt="MSRV: 1.82">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
 </p>
@@ -16,7 +16,7 @@ A fast, small CLI for [secrt.ca](https://secrt.ca) — one-time secret sharing w
 
 Built in Rust. No async runtime, no framework overhead. AES-256-GCM + HKDF-SHA256 + optional PBKDF2 passphrase protection, powered by [ring](https://github.com/briansmith/ring).
 
-**Download:** [macOS (Universal)](https://github.com/getsecrt/secrt-rs/releases/latest/download/secrt-darwin-universal) | [Linux (x86_64)](https://github.com/getsecrt/secrt-rs/releases/latest/download/secrt-linux-amd64) | [Windows (x86_64)](https://github.com/getsecrt/secrt-rs/releases/latest/download/secrt-windows-amd64.exe) | [Windows (ARM64)](https://github.com/getsecrt/secrt-rs/releases/latest/download/secrt-windows-arm64.exe)
+**Download:** [macOS (Universal)](https://github.com/getsecrt/secrt-cli/releases/latest/download/secrt-darwin-universal) | [Linux (x86_64)](https://github.com/getsecrt/secrt-cli/releases/latest/download/secrt-linux-amd64) | [Windows (x86_64)](https://github.com/getsecrt/secrt-cli/releases/latest/download/secrt-windows-amd64.exe) | [Windows (ARM64)](https://github.com/getsecrt/secrt-cli/releases/latest/download/secrt-windows-arm64.exe)
 
 > **Server project:** [getsecrt/secrt-server](https://github.com/getsecrt/secrt-server)
 
@@ -25,8 +25,8 @@ Built in Rust. No async runtime, no framework overhead. AES-256-GCM + HKDF-SHA25
 ### From source
 
 ```sh
-git clone https://github.com/getsecrt/secrt-rs.git
-cd secrt-rs
+git clone https://github.com/getsecrt/secrt-cli.git
+cd secrt-cli
 make release
 # Binary at target/release/secrt
 ```

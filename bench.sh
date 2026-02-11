@@ -3,7 +3,7 @@
 # Uses hyperfine for statistical benchmarking
 set -euo pipefail
 
-RUST="/Users/jdlien/code/secrt-rs/target/release/secrt"
+RUST="/Users/jdlien/code/secrt-cli/target/release/secrt"
 GO="/Users/jdlien/code/secrt/secrt"
 
 # Colors
