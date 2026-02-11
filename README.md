@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/secrt-logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/images/secrt-logo-sticker.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/images/secrt-logo.svg">
     <img alt="secrt" src="docs/images/secrt-logo-sticker.svg" width="250">
   </picture>
 </p>
